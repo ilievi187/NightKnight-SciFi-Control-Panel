@@ -1,0 +1,23 @@
+# Dependencies and build outputs
+node_modules/
+dist/
+coverage/
+
+# Rust build artifacts
+/target/
+**/target/
+
+# Local runtime state and secrets
+.env
+.env.*
+!.env.example
+*.sqlite
+*.sqlite3
+*.db
+*.db-shm
+*.db-wal
+
+# Editors and OS
+.DS_Store
+.idea/
+.vscode/
