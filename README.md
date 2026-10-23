@@ -51,3 +51,7 @@ The UI polls the local API every five seconds. Metric cards show up to 24 recent
 CPU, memory, and root filesystem samples in browser memory. History resets when
 the page reloads. Unavailable samples create gaps in the chart. The UI does not
 connect to external services.
+
+Network interface rates are calculated from local byte-counter changes between
+polls. A newly seen or reset interface needs two samples before its receive and
+transmit rates are available.
