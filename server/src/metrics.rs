@@ -419,10 +419,8 @@ fn parse_pressure_averages<'a>(
                     return None;
                 }
             }
-            "total" => {
-                if total_microseconds.replace(value.parse::<u64>().ok()?).is_some() {
-                    return None;
-                }
+            "total" if total_microseconds.replace(value.parse::<u64>().ok()?).is_some() => {
+                return None;
             }
             _ => {}
         }
