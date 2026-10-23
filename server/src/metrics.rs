@@ -31,6 +31,14 @@ pub struct MemoryMetrics {
 }
 
 #[derive(Serialize)]
+pub struct SwapMetrics {
+    pub total_bytes: u64,
+    pub free_bytes: u64,
+    pub used_bytes: u64,
+    pub used_percent: f64,
+}
+
+#[derive(Serialize)]
 pub struct DiskMetrics {
     pub total_bytes: u64,
     pub available_bytes: u64,
@@ -107,6 +115,7 @@ pub struct HostMetrics {
     pub load_average: Metric<LoadAverageMetrics>,
     pub thermal_zones: Metric<Vec<ThermalZoneMetrics>>,
     pub memory: Metric<MemoryMetrics>,
+    pub swap: Metric<SwapMetrics>,
     pub uptime_seconds: Metric<f64>,
     pub root_disk: Metric<DiskMetrics>,
     pub storage_volumes: Metric<Vec<StorageVolumeMetrics>>,
@@ -130,6 +139,7 @@ pub async fn collect_host_metrics() -> HostMetrics {
         load_average: load_average(),
         thermal_zones: thermal_zones(),
         memory: memory(),
+        swap: swap(),
         uptime_seconds: uptime(),
         root_disk: root_disk(),
         storage_volumes: storage_volumes(),
@@ -371,6 +381,64 @@ fn parse_memory_kib(contents: &str) -> Option<(u64, u64)> {
         }
     }
     Some((total?, available?))
+}
+
+#[cfg(target_os = "linux")]
+fn swap() -> Metric<SwapMetrics> {
+    let data = std::fs::read_to_string("/proc/meminfo")
+        .ok()
+        .and_then(|contents| parse_swap_kib(&contents));
+    match data {
+        Some((total_kib, free_kib)) => Metric::available(build_swap_metrics(total_kib, free_kib)),
+        None => Metric::unavailable("Linux swap data in /proc/meminfo is unavailable."),
+    }
+}
+
+#[cfg(not(target_os = "linux"))]
+fn swap() -> Metric<SwapMetrics> {
+    Metric::unavailable("Swap collection is only implemented for Linux.")
+}
+
+#[cfg(target_os = "linux")]
+fn parse_swap_kib(contents: &str) -> Option<(u64, u64)> {
+    let mut total = None;
+    let mut free = None;
+    for line in contents.lines() {
+        let Some((key, value)) = line.split_once(':') else {
+            continue;
+        };
+        if !matches!(key, "SwapTotal" | "SwapFree") {
+            continue;
+        }
+        let mut fields = value.split_whitespace();
+        let kib = fields.next()?.parse::<u64>().ok()?;
+        if fields.next() != Some("kB") || fields.next().is_some() {
+            return None;
+        }
+        match key {
+            "SwapTotal" => total = Some(kib),
+            "SwapFree" => free = Some(kib),
+            _ => unreachable!(),
+        }
+    }
+    Some((total?, free?))
+}
+
+fn build_swap_metrics(total_kib: u64, free_kib: u64) -> SwapMetrics {
+    let total_bytes = total_kib.saturating_mul(1024);
+    let free_bytes = free_kib.min(total_kib).saturating_mul(1024);
+    let used_bytes = total_bytes.saturating_sub(free_bytes);
+    let used_percent = if total_bytes == 0 {
+        0.0
+    } else {
+        used_bytes as f64 * 100.0 / total_bytes as f64
+    };
+    SwapMetrics {
+        total_bytes,
+        free_bytes,
+        used_bytes,
+        used_percent,
+    }
 }
 
 #[cfg(target_os = "linux")]
@@ -766,6 +834,33 @@ mod tests {
         let source = "MemTotal:       8192 kB\nMemAvailable:   4096 kB\n";
         assert_eq!(parse_memory_kib(source), Some((8192, 4096)));
         assert_eq!(parse_memory_kib("MemTotal: 100 kB\n"), None);
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn parses_linux_swap_totals_and_free_capacity() {
+        let source = "MemTotal: 8192 kB\nSwapTotal: 2048 kB\nSwapFree: 512 kB\n";
+        assert_eq!(parse_swap_kib(source), Some((2048, 512)));
+        assert_eq!(parse_swap_kib("SwapTotal: 2048 kB\n"), None);
+        assert_eq!(parse_swap_kib("SwapTotal: 2 MB\nSwapFree: 1 MB\n"), None);
+    }
+
+    #[test]
+    fn calculates_swap_usage_and_handles_disabled_or_inconsistent_counts() {
+        let usage = build_swap_metrics(2_048, 512);
+        assert_eq!(usage.total_bytes, 2_097_152);
+        assert_eq!(usage.free_bytes, 524_288);
+        assert_eq!(usage.used_bytes, 1_572_864);
+        assert_eq!(usage.used_percent, 75.0);
+
+        let disabled = build_swap_metrics(0, 0);
+        assert_eq!(disabled.total_bytes, 0);
+        assert_eq!(disabled.used_percent, 0.0);
+
+        let inconsistent = build_swap_metrics(512, 1_024);
+        assert_eq!(inconsistent.free_bytes, inconsistent.total_bytes);
+        assert_eq!(inconsistent.used_bytes, 0);
+        assert_eq!(inconsistent.used_percent, 0.0);
     }
 
     #[cfg(target_os = "linux")]

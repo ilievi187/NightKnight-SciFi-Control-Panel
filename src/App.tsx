@@ -578,6 +578,19 @@ function App() {
             />
             <MetricCard
               index="05"
+              label="Swap usage"
+              metric={metrics.swap}
+              format={(value) =>
+                value.total_bytes > 0 ? value.used_percent.toFixed(1) + "%" : "DISABLED"
+              }
+              detail={(value) =>
+                value.total_bytes > 0
+                  ? `${formatBytes(value.used_bytes)} used · ${formatBytes(value.free_bytes)} free`
+                  : "No swap space is configured on this host"
+              }
+            />
+            <MetricCard
+              index="06"
               label="System load average"
               metric={metrics.load_average}
               format={(value) =>
@@ -608,7 +621,7 @@ function App() {
               <p className="eyebrow">LIVE THROUGHPUT</p>
               <h2>Network interfaces</h2>
             </div>
-            <span className="panel-index">06</span>
+            <span className="panel-index">07</span>
           </div>
           {metrics?.network_interfaces.status === "available" ? (
             metrics.network_interfaces.value.length > 0 ? (
@@ -664,7 +677,7 @@ function App() {
               <p className="eyebrow">OPTIONAL SOURCES</p>
               <h2>Integrations</h2>
             </div>
-            <span className="panel-index">07</span>
+            <span className="panel-index">08</span>
           </div>
           {metrics ? (
             <div className="integration-list">
@@ -691,7 +704,7 @@ function App() {
             <p className="eyebrow">LOCAL CAPACITY</p>
             <h2>Mounted volumes</h2>
           </div>
-          <span className="panel-index">08</span>
+          <span className="panel-index">09</span>
         </div>
         {metrics?.storage_volumes.status === "available" ? (
           metrics.storage_volumes.value.length > 0 ? (
@@ -720,7 +733,7 @@ function App() {
             <p className="eyebrow">LOCAL ACCELERATOR STATUS</p>
             <h2>GPU telemetry</h2>
           </div>
-          <span className="panel-index">09</span>
+          <span className="panel-index">10</span>
         </div>
         {metrics?.gpu_metrics.status === "available" ? (
           metrics.gpu_metrics.value.length > 0 ? (
@@ -752,7 +765,7 @@ function App() {
             <p className="eyebrow">THERMAL MONITORING</p>
             <h2>System thermal zones</h2>
           </div>
-          <span className="panel-index">10</span>
+          <span className="panel-index">11</span>
         </div>
         {metrics?.thermal_zones.status === "available" ? (
           <div className="thermal-zone-grid">
