@@ -558,6 +558,88 @@ h2 {
   line-height: 1.5;
 }
 
+.storage-panel {
+  margin-top: 12px;
+}
+
+.storage-volume-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 245px), 1fr));
+  gap: 10px;
+}
+
+.storage-volume-card {
+  min-width: 0;
+  border: 1px solid #252d39;
+  padding: 13px;
+  background: linear-gradient(145deg, rgba(23, 30, 41, 0.72), rgba(14, 19, 27, 0.72));
+}
+
+.storage-volume-heading,
+.storage-volume-meta {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 12px;
+}
+
+.storage-volume-heading strong {
+  min-width: 0;
+  overflow: hidden;
+  color: #e3e9f1;
+  font: 11px var(--mono);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.storage-volume-heading span,
+.storage-volume-device,
+.storage-volume-meta {
+  color: #9da8b7;
+  font: 9px var(--mono);
+}
+
+.storage-volume-heading span {
+  flex: 0 0 auto;
+  color: var(--blue);
+}
+
+.storage-volume-device {
+  overflow: hidden;
+  margin: 8px 0 13px;
+  color: #8792a1;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.storage-volume-meter {
+  height: 4px;
+  overflow: hidden;
+  background: #252c37;
+}
+
+.storage-volume-meter span {
+  display: block;
+  height: 100%;
+  background: linear-gradient(90deg, #8caeff, #c5f266);
+  box-shadow: 0 0 9px rgba(197, 242, 102, 0.36);
+  transition: width 240ms ease;
+}
+
+.storage-volume-meta {
+  margin-top: 9px;
+  font-size: 8px;
+}
+
+.storage-volume-meta strong {
+  color: #d5dde8;
+  font-weight: 500;
+}
+
+.storage-volume-meta span {
+  text-align: right;
+}
+
 .unavailable-block {
   padding: 16px 0;
 }
@@ -635,6 +717,10 @@ h2 {
 
   .metric-card:hover {
     transform: none;
+  }
+
+  .storage-volume-meter span {
+    transition: none;
   }
 }
 

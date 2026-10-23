@@ -1,4 +1,6 @@
 use serde::Serialize;
+#[cfg(target_os = "linux")]
+use std::collections::BTreeMap;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 #[derive(Serialize)]
@@ -38,6 +40,17 @@ pub struct DiskMetrics {
 }
 
 #[derive(Serialize)]
+pub struct StorageVolumeMetrics {
+    pub device: String,
+    pub filesystem: String,
+    pub mount_point: String,
+    pub total_bytes: u64,
+    pub available_bytes: u64,
+    pub used_bytes: u64,
+    pub used_percent: f64,
+}
+
+#[derive(Serialize)]
 pub struct NetworkInterfaceMetrics {
     pub name: String,
     pub received_bytes: u64,
@@ -60,6 +73,7 @@ pub struct HostMetrics {
     pub memory: Metric<MemoryMetrics>,
     pub uptime_seconds: Metric<f64>,
     pub root_disk: Metric<DiskMetrics>,
+    pub storage_volumes: Metric<Vec<StorageVolumeMetrics>>,
     pub network_interfaces: Metric<Vec<NetworkInterfaceMetrics>>,
     pub integrations: Vec<IntegrationStatus>,
 }
@@ -78,6 +92,7 @@ pub async fn collect_host_metrics() -> HostMetrics {
         memory: memory(),
         uptime_seconds: uptime(),
         root_disk: root_disk(),
+        storage_volumes: storage_volumes(),
         network_interfaces: network_interfaces(),
         integrations: unavailable_integrations(),
     }
@@ -275,6 +290,186 @@ fn root_disk() -> Metric<DiskMetrics> {
     })
 }
 
+#[cfg(target_os = "linux")]
+fn storage_volumes() -> Metric<Vec<StorageVolumeMetrics>> {
+    use std::ffi::CString;
+
+    let contents = match std::fs::read_to_string("/proc/self/mountinfo") {
+        Ok(contents) => contents,
+        Err(_) => {
+            return Metric::unavailable("Linux mount data in /proc/self/mountinfo is unavailable.")
+        }
+    };
+
+    let mut mounts_by_point: BTreeMap<String, Vec<MountRecord>> = BTreeMap::new();
+    for mount in parse_mount_records(&contents) {
+        mounts_by_point
+            .entry(mount.mount_point.clone())
+            .or_default()
+            .push(mount);
+    }
+
+    let mut volumes = BTreeMap::new();
+    for (mount_point, mounts) in mounts_by_point {
+        if mount_point.is_empty() {
+            continue;
+        }
+        let Ok(path) = CString::new(mount_point.as_bytes()) else {
+            continue;
+        };
+        let Some(active_mount_id) = mount_id_for_path(&path) else {
+            // Without an active mount ID, the mount table cannot reliably tell
+            // which record at this path supplies the capacity reported below.
+            continue;
+        };
+        let Some(mount) = select_mount_record(mounts, active_mount_id) else {
+            // A mount change between reading mountinfo and statx can leave the
+            // active mount absent from this snapshot. Skip the inconsistent row.
+            continue;
+        };
+        if is_virtual_filesystem(&mount.filesystem) {
+            continue;
+        }
+
+        let mut stats: libc::statvfs = unsafe { std::mem::zeroed() };
+        if unsafe { libc::statvfs(path.as_ptr(), &mut stats) } != 0 {
+            continue;
+        }
+
+        let block_size = if stats.f_frsize == 0 {
+            stats.f_bsize as u64
+        } else {
+            stats.f_frsize as u64
+        };
+        let total_bytes = (stats.f_blocks as u64).saturating_mul(block_size);
+        if total_bytes == 0 {
+            continue;
+        }
+        let available_bytes = (stats.f_bavail as u64)
+            .saturating_mul(block_size)
+            .min(total_bytes);
+        let free_bytes = (stats.f_bfree as u64)
+            .saturating_mul(block_size)
+            .min(total_bytes);
+        let used_bytes = total_bytes.saturating_sub(free_bytes);
+
+        volumes.insert(
+            mount_point.clone(),
+            StorageVolumeMetrics {
+                device: mount.device,
+                filesystem: mount.filesystem,
+                mount_point,
+                total_bytes,
+                available_bytes,
+                used_bytes,
+                used_percent: used_bytes as f64 * 100.0 / total_bytes as f64,
+            },
+        );
+    }
+
+    Metric::available(volumes.into_values().collect())
+}
+
+#[cfg(not(target_os = "linux"))]
+fn storage_volumes() -> Metric<Vec<StorageVolumeMetrics>> {
+    Metric::unavailable("Mounted filesystem collection is only implemented for Linux.")
+}
+
+#[cfg(target_os = "linux")]
+struct MountRecord {
+    mount_id: u64,
+    device: String,
+    mount_point: String,
+    filesystem: String,
+}
+
+#[cfg(target_os = "linux")]
+fn parse_mount_records(contents: &str) -> Vec<MountRecord> {
+    contents
+        .lines()
+        .filter_map(|line| {
+            let (mount_fields, filesystem_fields) = line.split_once(" - ")?;
+            let mut mount_fields = mount_fields.split_whitespace();
+            let mount_id = mount_fields.next()?.parse().ok()?;
+            // Parent ID, major:minor, and filesystem root precede the mount point.
+            mount_fields.next()?;
+            mount_fields.next()?;
+            mount_fields.next()?;
+            let mount_point = decode_mount_field(mount_fields.next()?);
+            let mut filesystem_fields = filesystem_fields.split_whitespace();
+            Some(MountRecord {
+                mount_id,
+                filesystem: decode_mount_field(filesystem_fields.next()?),
+                device: decode_mount_field(filesystem_fields.next()?),
+                mount_point,
+            })
+        })
+        .collect()
+}
+
+#[cfg(target_os = "linux")]
+fn select_mount_record(mounts: Vec<MountRecord>, active_mount_id: u64) -> Option<MountRecord> {
+    mounts
+        .into_iter()
+        .find(|mount| mount.mount_id == active_mount_id)
+}
+
+#[cfg(target_os = "linux")]
+fn mount_id_for_path(path: &std::ffi::CString) -> Option<u64> {
+    let mut stats: libc::statx = unsafe { std::mem::zeroed() };
+    let result = unsafe {
+        libc::statx(
+            libc::AT_FDCWD,
+            path.as_ptr(),
+            libc::AT_STATX_SYNC_AS_STAT,
+            libc::STATX_MNT_ID,
+            &mut stats,
+        )
+    };
+    if result != 0 || stats.stx_mask & libc::STATX_MNT_ID == 0 {
+        return None;
+    }
+    Some(stats.stx_mnt_id)
+}
+
+#[cfg(target_os = "linux")]
+fn decode_mount_field(field: &str) -> String {
+    field
+        .replace(r"\040", " ")
+        .replace(r"\011", "\t")
+        .replace(r"\012", "\n")
+        .replace(r"\134", "\\")
+}
+
+#[cfg(target_os = "linux")]
+fn is_virtual_filesystem(filesystem: &str) -> bool {
+    matches!(
+        filesystem,
+        "proc"
+            | "sysfs"
+            | "devtmpfs"
+            | "devpts"
+            | "tmpfs"
+            | "ramfs"
+            | "cgroup"
+            | "cgroup2"
+            | "securityfs"
+            | "debugfs"
+            | "tracefs"
+            | "pstore"
+            | "configfs"
+            | "fusectl"
+            | "mqueue"
+            | "hugetlbfs"
+            | "bpf"
+            | "rpc_pipefs"
+            | "binfmt_misc"
+            | "efivarfs"
+            | "autofs"
+            | "nsfs"
+    )
+}
+
 #[cfg(not(target_os = "linux"))]
 fn root_disk() -> Metric<DiskMetrics> {
     Metric::unavailable("Root filesystem collection is only implemented for Linux.")
@@ -351,5 +546,23 @@ mod tests {
         assert_eq!(interfaces[0].name, "eth0");
         assert_eq!(interfaces[0].received_bytes, 1024);
         assert_eq!(interfaces[0].transmitted_bytes, 2048);
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn selects_active_mount_when_mountinfo_has_duplicate_mount_points() {
+        let records = parse_mount_records(
+            "37 35 8:1 / /mnt/team\\040files rw - ext4 /dev/visible rw\n36 35 0:42 / /mnt/team\\040files rw - tmpfs tmpfs rw\n38 36 0:42 /proc /proc rw - proc proc rw\n",
+        );
+        assert_eq!(records.len(), 3);
+        assert_eq!(records[0].mount_point, "/mnt/team files");
+        assert_eq!(records[0].filesystem, "ext4");
+        assert_eq!(records[0].device, "/dev/visible");
+        let active_mount = select_mount_record(records, 37).unwrap();
+        assert_eq!(active_mount.mount_id, 37);
+        assert_eq!(active_mount.device, "/dev/visible");
+        assert_eq!(active_mount.filesystem, "ext4");
+        assert!(is_virtual_filesystem("proc"));
+        assert!(!is_virtual_filesystem("nfs4"));
     }
 }

@@ -1,5 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { HostMetrics, Metric, NetworkInterfaceMetrics } from "./types";
+import type {
+  HostMetrics,
+  Metric,
+  NetworkInterfaceMetrics,
+  StorageVolumeMetrics,
+} from "./types";
 
 type MetricCardProps<T> = {
   label: string;
@@ -64,6 +69,38 @@ function MetricCard<T>({
           <p>{metric.reason}</p>
         </div>
       )}
+    </article>
+  );
+}
+
+function StorageVolumeCard({ volume }: { volume: StorageVolumeMetrics }) {
+  const usedPercent = Math.min(100, Math.max(0, volume.used_percent));
+
+  return (
+    <article className="storage-volume-card">
+      <div className="storage-volume-heading">
+        <strong title={volume.mount_point}>{volume.mount_point}</strong>
+        <span>{volume.filesystem}</span>
+      </div>
+      <p className="storage-volume-device" title={volume.device}>
+        {volume.device}
+      </p>
+      <div
+        className="storage-volume-meter"
+        role="meter"
+        aria-label={`${volume.mount_point} storage used`}
+        aria-valuemin={0}
+        aria-valuemax={100}
+        aria-valuenow={usedPercent}
+      >
+        <span style={{ width: `${usedPercent}%` }} />
+      </div>
+      <div className="storage-volume-meta">
+        <strong>{usedPercent.toFixed(1)}% USED</strong>
+        <span>
+          {formatBytes(volume.used_bytes)} / {formatBytes(volume.total_bytes)}
+        </span>
+      </div>
     </article>
   );
 }
@@ -524,6 +561,35 @@ function App() {
             <Unavailable reason="Integration sources are not yet available." />
           )}
         </article>
+      </section>
+
+      <section className="panel storage-panel" aria-label="Mounted storage">
+        <div className="panel-heading">
+          <div>
+            <p className="eyebrow">LOCAL CAPACITY</p>
+            <h2>Mounted volumes</h2>
+          </div>
+          <span className="panel-index">07</span>
+        </div>
+        {metrics?.storage_volumes.status === "available" ? (
+          metrics.storage_volumes.value.length > 0 ? (
+            <div className="storage-volume-grid">
+              {metrics.storage_volumes.value.map((volume) => (
+                <StorageVolumeCard key={volume.mount_point} volume={volume} />
+              ))}
+            </div>
+          ) : (
+            <p className="empty-copy">No mounted storage volumes were reported.</p>
+          )
+        ) : (
+          <Unavailable
+            reason={
+              metrics?.storage_volumes.status === "unavailable"
+                ? metrics.storage_volumes.reason
+                : "Waiting for host data."
+            }
+          />
+        )}
       </section>
 
       <footer className="footer">
