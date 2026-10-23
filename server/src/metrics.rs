@@ -1322,7 +1322,7 @@ mod tests {
         assert_eq!(devices[1].device, "sda1");
         assert_eq!(devices[1].sectors_read, 512);
         assert_eq!(devices[1].sectors_written, 1_024);
-        assert_eq!(parse_disk_io(""), Some(Vec::new()));
+        assert!(matches!(parse_disk_io(""), Some(devices) if devices.is_empty()));
         assert!(parse_disk_io("8 0 sda 100 2 2048 40 90 3 4096 50 0 61").is_none());
         assert!(parse_disk_io("8 0 sda 100 2 2048 40 90 3 nope 50 0 61 91").is_none());
         assert!(parse_disk_io(
