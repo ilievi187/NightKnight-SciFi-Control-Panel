@@ -1,6 +1,6 @@
 use serde::Serialize;
 #[cfg(target_os = "linux")]
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 #[derive(Serialize)]
@@ -78,6 +78,13 @@ pub struct NetworkInterfaceMetrics {
 }
 
 #[derive(Serialize)]
+pub struct DiskIoMetrics {
+    pub device: String,
+    pub sectors_read: u64,
+    pub sectors_written: u64,
+}
+
+#[derive(Serialize)]
 pub struct GpuMetrics {
     pub name: String,
     pub utilization_percent: u8,
@@ -151,6 +158,7 @@ pub struct HostMetrics {
     pub root_disk: Metric<DiskMetrics>,
     pub storage_volumes: Metric<Vec<StorageVolumeMetrics>>,
     pub network_interfaces: Metric<Vec<NetworkInterfaceMetrics>>,
+    pub disk_io: Metric<Vec<DiskIoMetrics>>,
     pub gpu_metrics: Metric<Vec<GpuMetrics>>,
     pub integrations: Vec<IntegrationStatus>,
 }
@@ -178,6 +186,7 @@ pub async fn collect_host_metrics() -> HostMetrics {
         root_disk: root_disk(),
         storage_volumes: storage_volumes(),
         network_interfaces: network_interfaces(),
+        disk_io: disk_io(),
         gpu_metrics,
         integrations: unavailable_integrations(),
     }
@@ -965,6 +974,24 @@ fn network_interfaces() -> Metric<Vec<NetworkInterfaceMetrics>> {
 }
 
 #[cfg(target_os = "linux")]
+fn disk_io() -> Metric<Vec<DiskIoMetrics>> {
+    match std::fs::read_to_string("/proc/diskstats")
+        .ok()
+        .and_then(|contents| parse_disk_io(&contents))
+    {
+        Some(devices) => Metric::available(devices),
+        None => Metric::unavailable(
+            "Linux block-device counters in /proc/diskstats are unavailable.",
+        ),
+    }
+}
+
+#[cfg(not(target_os = "linux"))]
+fn disk_io() -> Metric<Vec<DiskIoMetrics>> {
+    Metric::unavailable("Block-device I/O counters are only implemented for Linux.")
+}
+
+#[cfg(target_os = "linux")]
 async fn gpu_metrics() -> Metric<Vec<GpuMetrics>> {
     use std::time::Duration;
     use tokio::process::Command;
@@ -1060,6 +1087,30 @@ fn parse_network_interfaces(contents: &str) -> Option<Vec<NetworkInterfaceMetric
         });
     }
     Some(interfaces)
+}
+
+#[cfg(target_os = "linux")]
+fn parse_disk_io(contents: &str) -> Option<Vec<DiskIoMetrics>> {
+    let mut devices = Vec::new();
+    let mut names = BTreeSet::new();
+    for line in contents.lines().filter(|line| !line.trim().is_empty()) {
+        let fields: Vec<&str> = line.split_whitespace().collect();
+        if fields.len() < 14 {
+            return None;
+        }
+        let _major = fields[0].parse::<u32>().ok()?;
+        let _minor = fields[1].parse::<u32>().ok()?;
+        let device = fields[2];
+        if !names.insert(device) {
+            return None;
+        }
+        devices.push(DiskIoMetrics {
+            device: device.to_string(),
+            sectors_read: fields[5].parse::<u64>().ok()?,
+            sectors_written: fields[9].parse::<u64>().ok()?,
+        });
+    }
+    Some(devices)
 }
 
 #[cfg(test)]
@@ -1253,6 +1304,31 @@ mod tests {
         assert_eq!(interfaces[0].name, "eth0");
         assert_eq!(interfaces[0].received_bytes, 1024);
         assert_eq!(interfaces[0].transmitted_bytes, 2048);
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn parses_linux_disk_read_and_write_sector_counters() {
+        let source = concat!(
+            "  8 0 sda 100 2 2048 40 90 3 4096 50 0 61 91\n",
+            "  8 1 sda1 10 1 512 10 20 0 1024 20 0 30 40 0 0 0 0\n",
+        );
+        let devices = parse_disk_io(source).unwrap();
+
+        assert_eq!(devices.len(), 2);
+        assert_eq!(devices[0].device, "sda");
+        assert_eq!(devices[0].sectors_read, 2_048);
+        assert_eq!(devices[0].sectors_written, 4_096);
+        assert_eq!(devices[1].device, "sda1");
+        assert_eq!(devices[1].sectors_read, 512);
+        assert_eq!(devices[1].sectors_written, 1_024);
+        assert!(matches!(parse_disk_io(""), Some(devices) if devices.is_empty()));
+        assert!(parse_disk_io("8 0 sda 100 2 2048 40 90 3 4096 50 0 61").is_none());
+        assert!(parse_disk_io("8 0 sda 100 2 2048 40 90 3 nope 50 0 61 91").is_none());
+        assert!(parse_disk_io(
+            "8 0 sda 100 2 2048 40 90 3 4096 50 0 61 91\n8 0 sda 1 0 1 0 1 0 1 0 0 0 0\n"
+        )
+        .is_none());
     }
 
     #[cfg(target_os = "linux")]

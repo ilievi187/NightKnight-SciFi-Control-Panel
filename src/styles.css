@@ -678,6 +678,10 @@ h2 {
   line-height: 1.5;
 }
 
+.disk-io-panel {
+  margin-top: 12px;
+}
+
 .storage-panel {
   margin-top: 12px;
 }

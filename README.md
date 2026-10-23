@@ -69,3 +69,10 @@ connect to external services.
 Network interface rates are calculated from local byte-counter changes between
 polls. A newly seen or reset interface needs two samples before its receive and
 transmit rates are available.
+
+Block-device read and write rates use the cumulative sector counters in Linux
+[`/proc/diskstats`](https://docs.kernel.org/admin-guide/iostats.html). The
+dashboard converts standard 512-byte sectors to bytes per second from local
+counter changes. Device and partition rows remain separate; new or reset devices
+need two samples before rates are available. On other operating systems,
+block-device I/O is unavailable.

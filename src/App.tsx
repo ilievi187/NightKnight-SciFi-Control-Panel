@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type {
   CpuCoreMetrics,
+  DiskIoMetrics,
   GpuMetrics,
   HostMetrics,
   Metric,
@@ -36,6 +37,17 @@ type NetworkRate = {
 type NetworkSample = {
   sampledAt: number;
   counters: Map<string, NetworkInterfaceMetrics>;
+};
+
+type DiskIoRate = {
+  device: string;
+  readBytesPerSecond: number | null;
+  writeBytesPerSecond: number | null;
+};
+
+type DiskIoSample = {
+  sampledAt: number;
+  counters: Map<string, DiskIoMetrics>;
 };
 
 const MAX_HISTORY_SAMPLES = 24;
@@ -404,8 +416,10 @@ function App() {
   const [loading, setLoading] = useState(false);
   const [history, setHistory] = useState<TelemetrySample[]>([]);
   const [networkRates, setNetworkRates] = useState<NetworkRate[] | null>(null);
+  const [diskIoRates, setDiskIoRates] = useState<DiskIoRate[] | null>(null);
   const refreshInFlight = useRef(false);
   const previousNetworkSample = useRef<NetworkSample | null>(null);
+  const previousDiskIoSample = useRef<DiskIoSample | null>(null);
 
   const refresh = useCallback(async () => {
     if (refreshInFlight.current) return;
@@ -415,9 +429,9 @@ function App() {
       const response = await fetch("/api/metrics", { cache: "no-store" });
       if (!response.ok) throw new Error("API returned HTTP " + response.status);
       const payload = (await response.json()) as HostMetrics;
+      const sampledAt = performance.now();
       setMetrics(payload);
       if (payload.network_interfaces.status === "available") {
-        const sampledAt = performance.now();
         const interfaces = payload.network_interfaces.value;
         const previous = previousNetworkSample.current;
         const elapsedSeconds = previous
@@ -449,6 +463,37 @@ function App() {
         setNetworkRates(null);
         previousNetworkSample.current = null;
       }
+      if (payload.disk_io.status === "available") {
+        const devices = payload.disk_io.value;
+        const previous = previousDiskIoSample.current;
+        const elapsedSeconds = previous
+          ? (sampledAt - previous.sampledAt) / 1_000
+          : 0;
+        setDiskIoRates(
+          devices.map((device) => {
+            const prior = previous?.counters.get(device.device);
+            const hasElapsedSample = prior && elapsedSeconds > 0;
+            return {
+              device: device.device,
+              readBytesPerSecond:
+                hasElapsedSample && device.sectors_read >= prior.sectors_read
+                  ? ((device.sectors_read - prior.sectors_read) * 512) / elapsedSeconds
+                  : null,
+              writeBytesPerSecond:
+                hasElapsedSample && device.sectors_written >= prior.sectors_written
+                  ? ((device.sectors_written - prior.sectors_written) * 512) / elapsedSeconds
+                  : null,
+            };
+          }),
+        );
+        previousDiskIoSample.current = {
+          sampledAt,
+          counters: new Map(devices.map((device) => [device.device, device])),
+        };
+      } else {
+        setDiskIoRates(null);
+        previousDiskIoSample.current = null;
+      }
       setHistory((current) =>
         [
           ...current,
@@ -474,6 +519,8 @@ function App() {
       setMetrics(null);
       setNetworkRates(null);
       previousNetworkSample.current = null;
+      setDiskIoRates(null);
+      previousDiskIoSample.current = null;
       setHistory((current) =>
         [...current, { cpu: null, memory: null, disk: null }].slice(
           -MAX_HISTORY_SAMPLES,
@@ -924,6 +971,66 @@ function App() {
         <p className="thermal-source-note">
           Read-only Linux sensor values. Labels are supplied by the host and may vary by device.
         </p>
+      </section>
+
+      <section
+        className="panel disk-io-panel"
+        aria-label="Block-device I/O throughput"
+      >
+        <div className="panel-heading">
+          <div>
+            <p className="eyebrow">LIVE STORAGE ACTIVITY</p>
+            <h2>Block-device I/O</h2>
+          </div>
+          <span className="panel-index">14</span>
+        </div>
+        {metrics?.disk_io.status === "available" ? (
+          metrics.disk_io.value.length > 0 ? (
+            <>
+              <table className="network-table disk-io-table">
+                <caption className="sr-only">
+                  Current read and write throughput rates by block device
+                </caption>
+                <thead>
+                  <tr>
+                    <th scope="col">DEVICE</th>
+                    <th scope="col">READ / SEC</th>
+                    <th scope="col">WRITE / SEC</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {metrics.disk_io.value.map((device) => {
+                    const rate = diskIoRates?.find(
+                      (sample) => sample.device === device.device,
+                    );
+                    return (
+                      <tr key={device.device}>
+                        <th scope="row">{device.device}</th>
+                        <td>{formatRate(rate?.readBytesPerSecond)}</td>
+                        <td>{formatRate(rate?.writeBytesPerSecond)}</td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+              <p className="network-rate-note">
+                Rates use local counter changes. New or reset devices need two
+                samples before rates are available. Device and partition rows
+                are shown separately.
+              </p>
+            </>
+          ) : (
+            <p className="empty-copy">No block devices were reported.</p>
+          )
+        ) : (
+          <Unavailable
+            reason={
+              metrics?.disk_io.status === "unavailable"
+                ? metrics.disk_io.reason
+                : "Waiting for host data."
+            }
+          />
+        )}
       </section>
 
       <footer className="footer">

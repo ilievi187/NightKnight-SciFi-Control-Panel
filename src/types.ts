@@ -49,6 +49,12 @@ export interface NetworkInterfaceMetrics {
   transmitted_bytes: number;
 }
 
+export interface DiskIoMetrics {
+  device: string;
+  sectors_read: number;
+  sectors_written: number;
+}
+
 export interface GpuMetrics {
   name: string;
   utilization_percent: number;
@@ -114,6 +120,7 @@ export interface HostMetrics {
   root_disk: Metric<DiskMetrics>;
   storage_volumes: Metric<StorageVolumeMetrics[]>;
   network_interfaces: Metric<NetworkInterfaceMetrics[]>;
+  disk_io: Metric<DiskIoMetrics[]>;
   gpu_metrics: Metric<GpuMetrics[]>;
   integrations: IntegrationStatus[];
 }
