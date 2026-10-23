@@ -551,6 +551,13 @@ h2 {
   letter-spacing: 0.08em;
 }
 
+.network-rate-note {
+  margin: 12px 0 0;
+  color: #8792a1;
+  font-size: 9px;
+  line-height: 1.5;
+}
+
 .unavailable-block {
   padding: 16px 0;
 }

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { HostMetrics, Metric } from "./types";
+import type { HostMetrics, Metric, NetworkInterfaceMetrics } from "./types";
 
 type MetricCardProps<T> = {
   label: string;
@@ -14,6 +14,17 @@ type TelemetrySample = {
   cpu: number | null;
   memory: number | null;
   disk: number | null;
+};
+
+type NetworkRate = {
+  name: string;
+  receivedBytesPerSecond: number | null;
+  transmittedBytesPerSecond: number | null;
+};
+
+type NetworkSample = {
+  sampledAt: number;
+  counters: Map<string, NetworkInterfaceMetrics>;
 };
 
 const MAX_HISTORY_SAMPLES = 24;
@@ -148,6 +159,13 @@ function formatBytes(bytes: number): string {
   return value.toFixed(value >= 10 ? 0 : 1) + " " + units[unit];
 }
 
+function formatRate(bytesPerSecond: number | null | undefined): string {
+  if (bytesPerSecond === null || bytesPerSecond === undefined) {
+    return "Sampling…";
+  }
+  return formatBytes(bytesPerSecond) + "/s";
+}
+
 function formatDuration(seconds: number): string {
   const wholeSeconds = Math.floor(seconds);
   const days = Math.floor(wholeSeconds / 86_400);
@@ -166,7 +184,9 @@ function App() {
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const [history, setHistory] = useState<TelemetrySample[]>([]);
+  const [networkRates, setNetworkRates] = useState<NetworkRate[] | null>(null);
   const refreshInFlight = useRef(false);
+  const previousNetworkSample = useRef<NetworkSample | null>(null);
 
   const refresh = useCallback(async () => {
     if (refreshInFlight.current) return;
@@ -177,6 +197,39 @@ function App() {
       if (!response.ok) throw new Error("API returned HTTP " + response.status);
       const payload = (await response.json()) as HostMetrics;
       setMetrics(payload);
+      if (payload.network_interfaces.status === "available") {
+        const sampledAt = performance.now();
+        const interfaces = payload.network_interfaces.value;
+        const previous = previousNetworkSample.current;
+        const elapsedSeconds = previous
+          ? (sampledAt - previous.sampledAt) / 1_000
+          : 0;
+        setNetworkRates(
+          interfaces.map((network) => {
+            const prior = previous?.counters.get(network.name);
+            const hasElapsedSample = prior && elapsedSeconds > 0;
+            return {
+              name: network.name,
+              receivedBytesPerSecond:
+                hasElapsedSample && network.received_bytes >= prior.received_bytes
+                  ? (network.received_bytes - prior.received_bytes) / elapsedSeconds
+                  : null,
+              transmittedBytesPerSecond:
+                hasElapsedSample &&
+                network.transmitted_bytes >= prior.transmitted_bytes
+                  ? (network.transmitted_bytes - prior.transmitted_bytes) / elapsedSeconds
+                  : null,
+            };
+          }),
+        );
+        previousNetworkSample.current = {
+          sampledAt,
+          counters: new Map(interfaces.map((network) => [network.name, network])),
+        };
+      } else {
+        setNetworkRates(null);
+        previousNetworkSample.current = null;
+      }
       setHistory((current) =>
         [
           ...current,
@@ -200,6 +253,8 @@ function App() {
       setError("");
     } catch (cause) {
       setMetrics(null);
+      setNetworkRates(null);
+      previousNetworkSample.current = null;
       setHistory((current) =>
         [...current, { cpu: null, memory: null, disk: null }].slice(
           -MAX_HISTORY_SAMPLES,
@@ -391,32 +446,45 @@ function App() {
         <article className="panel network-panel">
           <div className="panel-heading">
             <div>
-              <p className="eyebrow">TRAFFIC COUNTERS</p>
+              <p className="eyebrow">LIVE THROUGHPUT</p>
               <h2>Network interfaces</h2>
             </div>
             <span className="panel-index">05</span>
           </div>
           {metrics?.network_interfaces.status === "available" ? (
             metrics.network_interfaces.value.length > 0 ? (
-              <table className="network-table">
-                <caption className="sr-only">Network traffic by interface</caption>
-                <thead>
-                  <tr>
-                    <th scope="col">INTERFACE</th>
-                    <th scope="col">RECEIVED</th>
-                    <th scope="col">TRANSMITTED</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {metrics.network_interfaces.value.map((network) => (
-                    <tr key={network.name}>
-                      <th scope="row">{network.name}</th>
-                      <td>{formatBytes(network.received_bytes)}</td>
-                      <td>{formatBytes(network.transmitted_bytes)}</td>
+              <>
+                <table className="network-table">
+                  <caption className="sr-only">
+                    Current network throughput rates by interface
+                  </caption>
+                  <thead>
+                    <tr>
+                      <th scope="col">INTERFACE</th>
+                      <th scope="col">RECEIVE / SEC</th>
+                      <th scope="col">TRANSMIT / SEC</th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
+                  </thead>
+                  <tbody>
+                    {metrics.network_interfaces.value.map((network) => {
+                      const rate = networkRates?.find(
+                        (sample) => sample.name === network.name,
+                      );
+                      return (
+                        <tr key={network.name}>
+                          <th scope="row">{network.name}</th>
+                          <td>{formatRate(rate?.receivedBytesPerSecond)}</td>
+                          <td>{formatRate(rate?.transmittedBytesPerSecond)}</td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+                <p className="network-rate-note">
+                  Rates use local counter changes. New or reset interfaces need
+                  two samples before a rate is available.
+                </p>
+              </>
             ) : (
               <p className="empty-copy">No network interfaces were reported.</p>
             )
