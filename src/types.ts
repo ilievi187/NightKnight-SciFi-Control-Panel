@@ -105,6 +105,11 @@ export interface IntegrationStatus {
   reason: string;
 }
 
+export interface TailscaleMetrics {
+  backend_state: string;
+  connected: boolean;
+}
+
 export interface HostMetrics {
   generated_at_unix: number;
   hostname: Metric<string>;
@@ -122,5 +127,6 @@ export interface HostMetrics {
   network_interfaces: Metric<NetworkInterfaceMetrics[]>;
   disk_io: Metric<DiskIoMetrics[]>;
   gpu_metrics: Metric<GpuMetrics[]>;
+  tailscale: Metric<TailscaleMetrics>;
   integrations: IntegrationStatus[];
 }
