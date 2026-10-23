@@ -18,9 +18,7 @@
 body {
   min-width: 320px;
   margin: 0;
-  background:
-    radial-gradient(ellipse at 80% 0%, rgba(41, 58, 94, 0.17), transparent 35%),
-    #0b0e14;
+  background: #0b0e14;
 }
 
 button,
@@ -37,6 +35,8 @@ a:focus-visible {
 .app-shell {
   width: min(1240px, calc(100% - 64px));
   margin: 0 auto;
+  position: relative;
+  z-index: 1;
 }
 
 .topbar {
