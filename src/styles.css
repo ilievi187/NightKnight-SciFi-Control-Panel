@@ -507,6 +507,52 @@ h2 {
   margin-top: 12px;
 }
 
+.cpu-cores-panel {
+  min-height: 0;
+  margin-top: 12px;
+}
+
+.cpu-core-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 180px), 1fr));
+  gap: 10px;
+}
+
+.cpu-core-row {
+  min-width: 0;
+  border: 1px solid #252d39;
+  padding: 12px;
+  background: linear-gradient(145deg, rgba(23, 30, 41, 0.72), rgba(14, 19, 27, 0.72));
+}
+
+.cpu-core-heading {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 9px;
+  color: #a5afbe;
+  font: 8px var(--mono);
+  letter-spacing: 0.06em;
+}
+
+.cpu-core-heading span {
+  color: #e3e9f1;
+  font-size: 9px;
+  letter-spacing: 0;
+}
+
+.cpu-core-meter span {
+  background: linear-gradient(90deg, #46c7c8, #8be3d8);
+  box-shadow: 0 0 10px rgba(70, 199, 200, 0.24);
+}
+
+.cpu-core-note {
+  margin: 12px 0 0;
+  color: #778393;
+  font-size: 9px;
+}
+
 .panel {
   min-height: 264px;
   border: 1px solid var(--line);
