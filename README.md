@@ -31,7 +31,7 @@ The API binds to loopback only. It exposes:
 
 On Linux, the API reads the hostname and OS release files, CPU and memory counters in /proc, root filesystem capacity through statvfs, and interface counters in /proc/net/dev. Remote probe and cloud API integrations are marked unavailable until a local source or endpoint is configured.
 
-The API also reports the Linux 1, 5, and 15 minute load averages from `/proc/loadavg`. These values are not normalized by CPU core count and are unavailable on other operating systems.
+The API also reports the Linux 1, 5, and 15 minute load averages from `/proc/loadavg`, plus the current runnable and total task counts. These averages are not normalized by CPU core count and are unavailable on other operating systems.
 
 Linux swap capacity is read from `/proc/meminfo` and shown as used and free space. If swap is disabled, the command center reports it as disabled; missing or invalid source data is reported as unavailable.
 

@@ -599,6 +599,9 @@ function App() {
                   .join(" / ")
               }
               detail={() => "1m / 5m / 15m · not CPU-normalized"}
+              secondaryDetail={(value) =>
+                `${formatCount(value.runnable_tasks)} runnable / ${formatCount(value.total_tasks)} total tasks`
+              }
             />
           </>
         ) : (

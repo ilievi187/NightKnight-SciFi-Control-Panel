@@ -91,6 +91,8 @@ pub struct LoadAverageMetrics {
     pub one_minute: f64,
     pub five_minutes: f64,
     pub fifteen_minutes: f64,
+    pub runnable_tasks: u64,
+    pub total_tasks: u64,
 }
 
 #[derive(Serialize)]
@@ -306,9 +308,13 @@ fn parse_load_average(contents: &str) -> Option<LoadAverageMetrics> {
     let one_minute = fields.next()?.parse::<f64>().ok()?;
     let five_minutes = fields.next()?.parse::<f64>().ok()?;
     let fifteen_minutes = fields.next()?.parse::<f64>().ok()?;
+    let (runnable_tasks, total_tasks) = fields.next()?.split_once('/')?;
+    let runnable_tasks = runnable_tasks.parse::<u64>().ok()?;
+    let total_tasks = total_tasks.parse::<u64>().ok()?;
     if [one_minute, five_minutes, fifteen_minutes]
         .iter()
         .any(|value| !value.is_finite() || *value < 0.0)
+        || runnable_tasks > total_tasks
     {
         return None;
     }
@@ -316,6 +322,8 @@ fn parse_load_average(contents: &str) -> Option<LoadAverageMetrics> {
         one_minute,
         five_minutes,
         fifteen_minutes,
+        runnable_tasks,
+        total_tasks,
     })
 }
 
@@ -884,11 +892,15 @@ mod tests {
         assert_eq!(values.one_minute, 0.42);
         assert_eq!(values.five_minutes, 1.25);
         assert_eq!(values.fifteen_minutes, 2.75);
+        assert_eq!(values.runnable_tasks, 2);
+        assert_eq!(values.total_tasks, 105);
 
         assert!(parse_load_average("0.42 1.25").is_none());
         assert!(parse_load_average("0.42 bad 2.75").is_none());
         assert!(parse_load_average("0.42 -1 2.75").is_none());
         assert!(parse_load_average("NaN 1 2").is_none());
+        assert!(parse_load_average("0.42 1.25 2.75 3/2 12345").is_none());
+        assert!(parse_load_average("0.42 1.25 2.75 2/tasks 12345").is_none());
     }
 
     #[cfg(target_os = "linux")]

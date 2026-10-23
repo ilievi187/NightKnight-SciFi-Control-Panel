@@ -61,6 +61,8 @@ export interface LoadAverageMetrics {
   one_minute: number;
   five_minutes: number;
   fifteen_minutes: number;
+  runnable_tasks: number;
+  total_tasks: number;
 }
 
 export interface ThermalZoneMetrics {
