@@ -15,6 +15,14 @@ export interface DiskMetrics {
   used_bytes: number;
   used_percent: number;
   mount_point: string;
+  inode_usage?: InodeMetrics;
+}
+
+export interface InodeMetrics {
+  total: number;
+  free: number;
+  used: number;
+  used_percent: number;
 }
 
 export interface StorageVolumeMetrics {
@@ -25,6 +33,7 @@ export interface StorageVolumeMetrics {
   available_bytes: number;
   used_bytes: number;
   used_percent: number;
+  inode_usage?: InodeMetrics;
 }
 
 export interface NetworkInterfaceMetrics {

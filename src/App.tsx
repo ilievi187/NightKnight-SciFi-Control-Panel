@@ -13,6 +13,7 @@ type MetricCardProps<T> = {
   metric: Metric<T>;
   format: (value: T) => string;
   detail?: (value: T) => string;
+  secondaryDetail?: (value: T) => string;
   index: string;
   history?: Array<number | null>;
 };
@@ -41,6 +42,7 @@ function MetricCard<T>({
   metric,
   format,
   detail,
+  secondaryDetail,
   index,
   history,
 }: MetricCardProps<T>) {
@@ -55,6 +57,11 @@ function MetricCard<T>({
         <>
           <p className="metric-value">{format(metric.value)}</p>
           {detail && <p className="metric-detail">{detail(metric.value)}</p>}
+          {secondaryDetail && (
+            <p className="metric-secondary-detail">
+              {secondaryDetail(metric.value)}
+            </p>
+          )}
           {history && (
             <div className="metric-history">
               <div className="metric-history-label">
@@ -77,6 +84,10 @@ function MetricCard<T>({
 
 function StorageVolumeCard({ volume }: { volume: StorageVolumeMetrics }) {
   const usedPercent = Math.min(100, Math.max(0, volume.used_percent));
+  const inodeUsage = volume.inode_usage;
+  const inodeUsedPercent = inodeUsage
+    ? Math.min(100, Math.max(0, inodeUsage.used_percent))
+    : null;
 
   return (
     <article className="storage-volume-card">
@@ -103,6 +114,29 @@ function StorageVolumeCard({ volume }: { volume: StorageVolumeMetrics }) {
           {formatBytes(volume.used_bytes)} / {formatBytes(volume.total_bytes)}
         </span>
       </div>
+      {inodeUsage && inodeUsedPercent !== null ? (
+        <div className="storage-volume-inodes">
+          <div className="storage-volume-inode-heading">
+            <span>INODES USED</span>
+            <strong>{inodeUsedPercent.toFixed(1)}%</strong>
+          </div>
+          <div
+            className="storage-volume-meter storage-volume-inode-meter"
+            role="meter"
+            aria-label={`${volume.mount_point} inodes used`}
+            aria-valuemin={0}
+            aria-valuemax={100}
+            aria-valuenow={inodeUsedPercent}
+          >
+            <span style={{ width: `${inodeUsedPercent}%` }} />
+          </div>
+          <p className="storage-volume-inode-count">
+            {formatCount(inodeUsage.used)} / {formatCount(inodeUsage.total)} used
+          </p>
+        </div>
+      ) : (
+        <p className="storage-volume-inode-note">INODE CAPACITY NOT REPORTED</p>
+      )}
     </article>
   );
 }
@@ -262,6 +296,10 @@ function formatBytes(bytes: number): string {
     unit += 1;
   }
   return value.toFixed(value >= 10 ? 0 : 1) + " " + units[unit];
+}
+
+function formatCount(value: number): string {
+  return new Intl.NumberFormat().format(value);
 }
 
 function formatRate(bytesPerSecond: number | null | undefined): string {
@@ -526,6 +564,11 @@ function App() {
                 formatBytes(value.used_bytes) +
                 " used of " +
                 formatBytes(value.total_bytes)
+              }
+              secondaryDetail={(value) =>
+                value.inode_usage
+                  ? `Inodes ${value.inode_usage.used_percent.toFixed(1)}% used (${formatCount(value.inode_usage.used)} / ${formatCount(value.inode_usage.total)})`
+                  : "Inode capacity is not reported by this filesystem"
               }
               history={
                 history.length
