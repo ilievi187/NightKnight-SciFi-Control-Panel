@@ -45,6 +45,8 @@ The `/api/metrics` response also includes `storage_volumes`, which reports capac
 
 When the NVIDIA driver tool `nvidia-smi` is available, `/api/metrics` also reports GPU utilization, video memory use, and temperature for each NVIDIA GPU. The API runs a fixed read-only query with a two-second timeout. Missing tools, unsupported devices, or incomplete readings are reported as unavailable; the application does not send GPU commands or control the device.
 
+On Linux, the integrations panel reads the local Tailscale backend state with `tailscale status --json --peers=false`. It reports whether the daemon is running and does not collect peer details or change Tailscale configuration. Missing tools, timeouts, or invalid output are reported as unavailable.
+
 ## Checks
 
 Run Rust unit tests and the frontend typecheck/build:

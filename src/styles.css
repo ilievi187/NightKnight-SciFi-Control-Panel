@@ -1029,6 +1029,24 @@ h2 {
   font: 12px var(--mono);
 }
 
+.integration-symbol.connected,
+.integration-row .integration-badge.connected {
+  color: var(--green);
+}
+
+.integration-row .integration-badge.connected {
+  border-color: rgba(197, 242, 102, 0.28);
+}
+
+.integration-symbol.disconnected,
+.integration-row .integration-badge.disconnected {
+  color: #ffd27d;
+}
+
+.integration-row .integration-badge.disconnected {
+  border-color: rgba(255, 210, 125, 0.28);
+}
+
 .integration-copy strong {
   font-size: 10px;
   font-weight: 600;

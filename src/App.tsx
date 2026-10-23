@@ -9,6 +9,7 @@ import type {
   PressureAverages,
   ResourcePressureMetrics,
   StorageVolumeMetrics,
+  TailscaleMetrics,
   ThermalZoneMetrics,
 } from "./types";
 
@@ -293,6 +294,36 @@ function ThermalZoneCard({ zone }: { zone: ThermalZoneMetrics }) {
       </div>
     </article>
   );
+}
+
+function IntegrationRow({
+  name,
+  status,
+  reason,
+}: {
+  name: string;
+  status: "connected" | "disconnected" | "unavailable";
+  reason: string;
+}) {
+  return (
+    <div className="integration-row">
+      <span className={`integration-symbol ${status}`} aria-hidden="true">
+        {status === "connected" ? "✓" : "—"}
+      </span>
+      <div className="integration-copy">
+        <strong>{name}</strong>
+        <p>{reason}</p>
+      </div>
+      <span className={`unavailable-badge integration-badge ${status}`}>
+        {status.toUpperCase()}
+      </span>
+    </div>
+  );
+}
+
+function tailscaleReason(metric: Metric<TailscaleMetrics>): string {
+  if (metric.status === "unavailable") return metric.reason;
+  return `Local daemon state: ${metric.value.backend_state}. Peer details are not collected.`;
 }
 
 function Sparkline({
@@ -867,15 +898,24 @@ function App() {
           </div>
           {metrics ? (
             <div className="integration-list">
+              <IntegrationRow
+                name="Tailscale"
+                status={
+                  metrics.tailscale.status === "available"
+                    ? metrics.tailscale.value.connected
+                      ? "connected"
+                      : "disconnected"
+                    : "unavailable"
+                }
+                reason={tailscaleReason(metrics.tailscale)}
+              />
               {metrics.integrations.map((integration) => (
-                <div className="integration-row" key={integration.name}>
-                  <span className="integration-symbol">—</span>
-                  <div className="integration-copy">
-                    <strong>{integration.name}</strong>
-                    <p>{integration.reason}</p>
-                  </div>
-                  <span className="unavailable-badge">UNAVAILABLE</span>
-                </div>
+                <IntegrationRow
+                  key={integration.name}
+                  name={integration.name}
+                  status="unavailable"
+                  reason={integration.reason}
+                />
               ))}
             </div>
           ) : (

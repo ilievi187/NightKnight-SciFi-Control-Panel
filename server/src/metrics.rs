@@ -143,6 +143,12 @@ pub struct IntegrationStatus {
 }
 
 #[derive(Serialize)]
+pub struct TailscaleMetrics {
+    pub backend_state: String,
+    pub connected: bool,
+}
+
+#[derive(Serialize)]
 pub struct HostMetrics {
     pub generated_at_unix: u64,
     pub hostname: Metric<String>,
@@ -160,6 +166,7 @@ pub struct HostMetrics {
     pub network_interfaces: Metric<Vec<NetworkInterfaceMetrics>>,
     pub disk_io: Metric<Vec<DiskIoMetrics>>,
     pub gpu_metrics: Metric<Vec<GpuMetrics>>,
+    pub tailscale: Metric<TailscaleMetrics>,
     pub integrations: Vec<IntegrationStatus>,
 }
 
@@ -168,8 +175,12 @@ pub async fn collect_host_metrics() -> HostMetrics {
         .duration_since(UNIX_EPOCH)
         .map(|duration| duration.as_secs())
         .unwrap_or(0);
-    let (cpu_usage_percent, cpu_cores, gpu_metrics) =
-        tokio::join!(cpu_usage_percent(), cpu_cores(), gpu_metrics());
+    let (cpu_usage_percent, cpu_cores, gpu_metrics, tailscale) = tokio::join!(
+        cpu_usage_percent(),
+        cpu_cores(),
+        gpu_metrics(),
+        tailscale_status()
+    );
 
     HostMetrics {
         generated_at_unix,
@@ -188,6 +199,7 @@ pub async fn collect_host_metrics() -> HostMetrics {
         network_interfaces: network_interfaces(),
         disk_io: disk_io(),
         gpu_metrics,
+        tailscale,
         integrations: unavailable_integrations(),
     }
 }
@@ -1028,6 +1040,62 @@ async fn gpu_metrics() -> Metric<Vec<GpuMetrics>> {
     }
 }
 
+#[cfg(target_os = "linux")]
+async fn tailscale_status() -> Metric<TailscaleMetrics> {
+    use std::time::Duration;
+    use tokio::process::Command;
+
+    // Peers are not needed for the dashboard, so keep the local status query
+    // limited to the daemon's own backend state.
+    let result = tokio::time::timeout(
+        Duration::from_secs(2),
+        Command::new("tailscale")
+            .args(["status", "--json", "--peers=false"])
+            .kill_on_drop(true)
+            .output(),
+    )
+    .await;
+
+    match result {
+        Err(_) => Metric::unavailable("Tailscale status did not respond within 2 seconds."),
+        Ok(Err(_)) => Metric::unavailable("The Tailscale CLI is unavailable."),
+        Ok(Ok(output)) if !output.status.success() => {
+            Metric::unavailable("The Tailscale CLI could not read local status.")
+        }
+        Ok(Ok(output)) => match String::from_utf8(output.stdout)
+            .ok()
+            .and_then(|contents| parse_tailscale_status(&contents))
+        {
+            Some(status) => Metric::available(status),
+            None => Metric::unavailable("Tailscale returned invalid local status data."),
+        },
+    }
+}
+
+#[cfg(not(target_os = "linux"))]
+async fn tailscale_status() -> Metric<TailscaleMetrics> {
+    Metric::unavailable("Tailscale status collection is only implemented for Linux.")
+}
+
+#[cfg(target_os = "linux")]
+fn parse_tailscale_status(contents: &str) -> Option<TailscaleMetrics> {
+    let value: serde_json::Value = serde_json::from_str(contents).ok()?;
+    let backend_state = value.get("BackendState")?.as_str()?.trim();
+    if backend_state.is_empty()
+        || backend_state.len() > 64
+        || !backend_state
+            .chars()
+            .all(|character| character.is_ascii_alphanumeric() || matches!(character, '_' | '-'))
+    {
+        return None;
+    }
+
+    Some(TailscaleMetrics {
+        backend_state: backend_state.to_string(),
+        connected: backend_state == "Running",
+    })
+}
+
 #[cfg(not(target_os = "linux"))]
 async fn gpu_metrics() -> Metric<Vec<GpuMetrics>> {
     Metric::unavailable("GPU telemetry is only implemented for Linux NVIDIA drivers.")
@@ -1355,6 +1423,31 @@ mod tests {
         assert!(parse_nvidia_smi_output("NVIDIA GPU, N/A, 8192, 1024, 54").is_none());
         assert!(parse_nvidia_smi_output("NVIDIA GPU, 101, 8192, 1024, 54").is_none());
         assert!(parse_nvidia_smi_output("NVIDIA GPU, 50, 8192, 8193, 54").is_none());
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn parses_tailscale_backend_state_without_peer_data() {
+        let connected = parse_tailscale_status(
+            r#"{"BackendState":"Running","Peer":{"ignored":{"HostName":"private-peer"}}}"#,
+        )
+        .unwrap();
+        assert_eq!(connected.backend_state, "Running");
+        assert!(connected.connected);
+
+        let stopped = parse_tailscale_status(r#"{"BackendState":"Stopped"}"#).unwrap();
+        assert_eq!(stopped.backend_state, "Stopped");
+        assert!(!stopped.connected);
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn rejects_invalid_tailscale_status_payloads() {
+        assert!(parse_tailscale_status("").is_none());
+        assert!(parse_tailscale_status("[]").is_none());
+        assert!(parse_tailscale_status(r#"{"Peer":{}}"#).is_none());
+        assert!(parse_tailscale_status(r#"{"BackendState":3}"#).is_none());
+        assert!(parse_tailscale_status(r#"{"BackendState":"<script>"}"#).is_none());
     }
 
     #[cfg(target_os = "linux")]
