@@ -70,6 +70,24 @@ export interface CpuCoreMetrics {
   utilization_percent: number;
 }
 
+export interface PressureAverages {
+  avg10_percent: number;
+  avg60_percent: number;
+  avg300_percent: number;
+  total_microseconds: number;
+}
+
+export interface ResourcePressureMetrics {
+  some: PressureAverages;
+  full: PressureAverages | null;
+}
+
+export interface SystemPressureMetrics {
+  cpu: ResourcePressureMetrics;
+  memory: ResourcePressureMetrics;
+  io: ResourcePressureMetrics;
+}
+
 export interface ThermalZoneMetrics {
   name: string;
   temperature_celsius: number;
@@ -87,6 +105,7 @@ export interface HostMetrics {
   operating_system: Metric<string>;
   cpu_usage_percent: Metric<number>;
   cpu_cores: Metric<CpuCoreMetrics[]>;
+  system_pressure: Metric<SystemPressureMetrics>;
   load_average: Metric<LoadAverageMetrics>;
   thermal_zones: Metric<ThermalZoneMetrics[]>;
   memory: Metric<MemoryMetrics>;

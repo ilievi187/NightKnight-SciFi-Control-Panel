@@ -102,6 +102,27 @@ pub struct CpuCoreMetrics {
 }
 
 #[derive(Serialize)]
+pub struct PressureAverages {
+    pub avg10_percent: f64,
+    pub avg60_percent: f64,
+    pub avg300_percent: f64,
+    pub total_microseconds: u64,
+}
+
+#[derive(Serialize)]
+pub struct ResourcePressureMetrics {
+    pub some: PressureAverages,
+    pub full: Option<PressureAverages>,
+}
+
+#[derive(Serialize)]
+pub struct SystemPressureMetrics {
+    pub cpu: ResourcePressureMetrics,
+    pub memory: ResourcePressureMetrics,
+    pub io: ResourcePressureMetrics,
+}
+
+#[derive(Serialize)]
 pub struct ThermalZoneMetrics {
     pub name: String,
     pub temperature_celsius: f64,
@@ -121,6 +142,7 @@ pub struct HostMetrics {
     pub operating_system: Metric<String>,
     pub cpu_usage_percent: Metric<f64>,
     pub cpu_cores: Metric<Vec<CpuCoreMetrics>>,
+    pub system_pressure: Metric<SystemPressureMetrics>,
     pub load_average: Metric<LoadAverageMetrics>,
     pub thermal_zones: Metric<Vec<ThermalZoneMetrics>>,
     pub memory: Metric<MemoryMetrics>,
@@ -147,6 +169,7 @@ pub async fn collect_host_metrics() -> HostMetrics {
         operating_system: operating_system(),
         cpu_usage_percent,
         cpu_cores,
+        system_pressure: system_pressure(),
         load_average: load_average(),
         thermal_zones: thermal_zones(),
         memory: memory(),
@@ -271,6 +294,126 @@ fn load_average() -> Metric<LoadAverageMetrics> {
         Some(values) => Metric::available(values),
         None => Metric::unavailable("Linux load averages in /proc/loadavg are unavailable."),
     }
+}
+
+#[cfg(target_os = "linux")]
+fn system_pressure() -> Metric<SystemPressureMetrics> {
+    let Some(mut cpu) = std::fs::read_to_string("/proc/pressure/cpu")
+        .ok()
+        .and_then(|contents| parse_pressure_resource(&contents))
+    else {
+        return Metric::unavailable("Linux CPU pressure data in /proc/pressure/cpu is unavailable.");
+    };
+    let Some(memory) = std::fs::read_to_string("/proc/pressure/memory")
+        .ok()
+        .and_then(|contents| parse_pressure_resource(&contents))
+    else {
+        return Metric::unavailable("Linux memory pressure data in /proc/pressure/memory is unavailable.");
+    };
+    let Some(io) = std::fs::read_to_string("/proc/pressure/io")
+        .ok()
+        .and_then(|contents| parse_pressure_resource(&contents))
+    else {
+        return Metric::unavailable("Linux I/O pressure data in /proc/pressure/io is unavailable.");
+    };
+
+    // System-wide CPU full pressure is undefined, even on kernels that emit a
+    // compatibility line for it.
+    cpu.full = None;
+    Metric::available(SystemPressureMetrics { cpu, memory, io })
+}
+
+#[cfg(not(target_os = "linux"))]
+fn system_pressure() -> Metric<SystemPressureMetrics> {
+    Metric::unavailable("System pressure stall information is only collected on Linux.")
+}
+
+#[cfg(target_os = "linux")]
+fn parse_pressure_resource(contents: &str) -> Option<ResourcePressureMetrics> {
+    let mut some = None;
+    let mut full = None;
+    for line in contents.lines().filter(|line| !line.trim().is_empty()) {
+        let mut fields = line.split_whitespace();
+        let kind = fields.next()?;
+        match kind {
+            "some" => {
+                let averages = parse_pressure_averages(fields)?;
+                if some.replace(averages).is_some() {
+                    return None;
+                }
+            }
+            "full" => {
+                let averages = parse_pressure_averages(fields)?;
+                if full.replace(averages).is_some() {
+                    return None;
+                }
+            }
+            _ => {}
+        }
+    }
+    Some(ResourcePressureMetrics {
+        some: some?,
+        full,
+    })
+}
+
+#[cfg(target_os = "linux")]
+fn parse_pressure_averages<'a>(
+    fields: impl Iterator<Item = &'a str>,
+) -> Option<PressureAverages> {
+    let mut avg10_percent = None;
+    let mut avg60_percent = None;
+    let mut avg300_percent = None;
+    let mut total_microseconds = None;
+
+    for field in fields {
+        let (key, value) = field.split_once('=')?;
+        match key {
+            "avg10" => {
+                if avg10_percent
+                    .replace(parse_pressure_percent(value)?)
+                    .is_some()
+                {
+                    return None;
+                }
+            }
+            "avg60" => {
+                if avg60_percent
+                    .replace(parse_pressure_percent(value)?)
+                    .is_some()
+                {
+                    return None;
+                }
+            }
+            "avg300" => {
+                if avg300_percent
+                    .replace(parse_pressure_percent(value)?)
+                    .is_some()
+                {
+                    return None;
+                }
+            }
+            "total" => {
+                if total_microseconds.replace(value.parse::<u64>().ok()?).is_some() {
+                    return None;
+                }
+            }
+            _ => {}
+        }
+    }
+
+    Some(PressureAverages {
+        avg10_percent: avg10_percent?,
+        avg60_percent: avg60_percent?,
+        avg300_percent: avg300_percent?,
+        total_microseconds: total_microseconds?,
+    })
+}
+
+#[cfg(target_os = "linux")]
+fn parse_pressure_percent(value: &str) -> Option<f64> {
+    let percent = value.parse::<f64>().ok()?;
+    (percent.is_finite() && (0.0..=100.0).contains(&percent)).then_some(percent)
 }
 
 #[cfg(target_os = "linux")]
@@ -1010,6 +1153,36 @@ mod tests {
         assert!(parse_cpu_core_counters("cpu 300 0 150 1100\n").is_none());
         assert!(parse_cpu_core_counters("cpu0 100 0 nope 400\n").is_none());
         assert!(parse_cpu_core_counters("cpu0 100 0 50 400\ncpu0 101 0 50 400\n").is_none());
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn parses_linux_pressure_windows_and_optional_full_stall_lines() {
+        let cpu = parse_pressure_resource(
+            "some avg10=1.25 avg60=2.50 avg300=3.75 total=12345\n",
+        )
+        .unwrap();
+        assert_eq!(cpu.some.avg10_percent, 1.25);
+        assert_eq!(cpu.some.avg60_percent, 2.5);
+        assert_eq!(cpu.some.avg300_percent, 3.75);
+        assert_eq!(cpu.some.total_microseconds, 12_345);
+        assert!(cpu.full.is_none());
+
+        let memory = parse_pressure_resource(
+            "some total=23456 avg300=4.50 avg10=2.00 avg60=3.00\nfull avg10=0.50 avg60=0.75 avg300=1.00 total=4567\n",
+        )
+        .unwrap();
+        assert_eq!(memory.some.total_microseconds, 23_456);
+        assert_eq!(memory.full.as_ref().unwrap().avg10_percent, 0.5);
+        assert_eq!(memory.full.unwrap().total_microseconds, 4_567);
+
+        assert!(parse_pressure_resource("").is_none());
+        assert!(parse_pressure_resource("full avg10=0 avg60=0 avg300=0 total=0\n").is_none());
+        assert!(parse_pressure_resource("some avg10=101 avg60=0 avg300=0 total=0\n").is_none());
+        assert!(parse_pressure_resource("some avg10=NaN avg60=0 avg300=0 total=0\n").is_none());
+        assert!(parse_pressure_resource("some avg10=0 avg60=0 avg300=0\n").is_none());
+        assert!(parse_pressure_resource("some avg10=0 avg60=0 avg300=0 total=nope\n").is_none());
+        assert!(parse_pressure_resource("some avg10=0 avg60=0 avg300=0 total=0\nsome avg10=0 avg60=0 avg300=0 total=0\n").is_none());
     }
 
     #[cfg(target_os = "linux")]

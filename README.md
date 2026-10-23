@@ -35,6 +35,8 @@ The API also reports the Linux 1, 5, and 15 minute load averages from `/proc/loa
 
 Per-core CPU utilization is sampled from Linux `/proc/stat` counter changes. New or reset cores are omitted until two valid samples are available; on other operating systems this reading is unavailable.
 
+System pressure stall information is read from Linux `/proc/pressure/cpu`, `/proc/pressure/memory`, and `/proc/pressure/io`. The dashboard shows `some` and (when available) `full` stall percentages over the 10, 60, and 300 second windows. System-wide CPU `full` pressure is not defined. Pressure readings are unavailable when the kernel does not expose a valid source.
+
 Linux swap capacity is read from `/proc/meminfo` and shown as used and free space. If swap is disabled, the command center reports it as disabled; missing or invalid source data is reported as unavailable.
 
 When Linux exposes readable thermal zones under `/sys/class/thermal`, the API reports each zone's host-provided label and temperature in Celsius. The command center shows these as generic system thermal readings because zone labels and sensor coverage vary by device. Thermal readings are unavailable when the source cannot be read or no usable zones are exposed.
