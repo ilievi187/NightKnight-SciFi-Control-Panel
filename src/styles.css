@@ -121,13 +121,64 @@ a:focus-visible {
   box-shadow: 0 0 12px currentColor;
 }
 
+.api-indicator.online .status-dot {
+  animation: status-pulse 2.4s ease-in-out infinite;
+}
+
+@keyframes status-pulse {
+  50% {
+    opacity: 0.58;
+    box-shadow: 0 0 4px currentColor;
+  }
+}
+
 .hero {
+  position: relative;
+  isolation: isolate;
   min-height: 236px;
   display: flex;
   justify-content: space-between;
   align-items: end;
   gap: 32px;
   padding: 42px 0 34px;
+}
+
+.hero::after {
+  position: absolute;
+  z-index: -1;
+  top: 12%;
+  right: 0;
+  left: 0;
+  height: 1px;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    rgba(140, 174, 255, 0.45) 18%,
+    rgba(197, 242, 102, 0.55) 50%,
+    rgba(140, 174, 255, 0.45) 82%,
+    transparent
+  );
+  box-shadow: 0 0 16px rgba(140, 174, 255, 0.18);
+  content: "";
+  pointer-events: none;
+  animation: hero-scan 9s ease-in-out infinite;
+}
+
+@keyframes hero-scan {
+  0% {
+    top: 12%;
+    opacity: 0;
+  }
+  15% {
+    opacity: 0.42;
+  }
+  85% {
+    opacity: 0.32;
+  }
+  100% {
+    top: 88%;
+    opacity: 0;
+  }
 }
 
 .eyebrow {
@@ -201,6 +252,14 @@ h1 {
 
 .spinning {
   animation: spin 1s linear infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .spinning,
+  .api-indicator.online .status-dot,
+  .hero::after {
+    animation: none;
+  }
 }
 
 @keyframes spin {
