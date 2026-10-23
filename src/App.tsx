@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import SciFiBackground from "./SciFiBackground";
 import type {
   CpuCoreMetrics,
   DiskIoMetrics,
@@ -579,6 +580,7 @@ function App() {
 
   return (
     <main className="app-shell">
+      <SciFiBackground />
       <header className="topbar">
         <a className="brand" href="/" aria-label="NightKnight Command Center">
           <span className="brand-mark">NK</span>
