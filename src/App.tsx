@@ -665,12 +665,103 @@ function App() {
         </div>
       </section>
 
-      <section className="section-heading">
-        <div>
-          <p className="eyebrow">HOST TELEMETRY</p>
-          <h2>Current readings</h2>
-        </div>
-        <span className="refresh-note">AUTO REFRESH / 5 SEC</span>
+      <section className="system-overview" aria-label="System overview">
+        {metrics ? (
+          <div className="overview-grid">
+            <div className="overview-item">
+              <span className="overview-label">CPU</span>
+              <span className="overview-value">
+                {metrics.cpu_usage_percent.status === "available"
+                  ? metrics.cpu_usage_percent.value.toFixed(0) + "%"
+                  : "N/A"}
+              </span>
+              <div className="overview-bar">
+                <span
+                  style={{
+                    width:
+                      metrics.cpu_usage_percent.status === "available"
+                        ? metrics.cpu_usage_percent.value + "%"
+                        : "0%",
+                  }}
+                />
+              </div>
+            </div>
+            <div className="overview-item">
+              <span className="overview-label">RAM</span>
+              <span className="overview-value">
+                {metrics.memory.status === "available"
+                  ? metrics.memory.value.used_percent.toFixed(0) + "%"
+                  : "N/A"}
+              </span>
+              <div className="overview-bar">
+                <span
+                  style={{
+                    width:
+                      metrics.memory.status === "available"
+                        ? metrics.memory.value.used_percent + "%"
+                        : "0%",
+                  }}
+                />
+              </div>
+            </div>
+            <div className="overview-item">
+              <span className="overview-label">DISK</span>
+              <span className="overview-value">
+                {metrics.root_disk.status === "available"
+                  ? metrics.root_disk.value.used_percent.toFixed(0) + "%"
+                  : "N/A"}
+              </span>
+              <div className="overview-bar">
+                <span
+                  style={{
+                    width:
+                      metrics.root_disk.status === "available"
+                        ? metrics.root_disk.value.used_percent + "%"
+                        : "0%",
+                  }}
+                />
+              </div>
+            </div>
+            <div className="overview-item">
+              <span className="overview-label">GPU</span>
+              <span className="overview-value">
+                {metrics.gpu_metrics.status === "available" &&
+                metrics.gpu_metrics.value.length > 0
+                  ? metrics.gpu_metrics.value[0].utilization_percent + "%"
+                  : "N/A"}
+              </span>
+              <div className="overview-bar">
+                <span
+                  style={{
+                    width:
+                      metrics.gpu_metrics.status === "available" &&
+                      metrics.gpu_metrics.value.length > 0
+                        ? metrics.gpu_metrics.value[0].utilization_percent + "%"
+                        : "0%",
+                  }}
+                />
+              </div>
+            </div>
+            <div className="overview-item">
+              <span className="overview-label">LOAD</span>
+              <span className="overview-value">
+                {metrics.load_average.status === "available"
+                  ? metrics.load_average.value.one_minute.toFixed(2)
+                  : "N/A"}
+              </span>
+            </div>
+            <div className="overview-item">
+              <span className="overview-label">UPTIME</span>
+              <span className="overview-value">
+                {metrics.uptime_seconds.status === "available"
+                  ? formatDuration(metrics.uptime_seconds.value)
+                  : "N/A"}
+              </span>
+            </div>
+          </div>
+        ) : (
+          <div className="overview-loading">Waiting for telemetry…</div>
+        )}
       </section>
 
       <section className="metrics-grid" aria-label="Host metrics">
