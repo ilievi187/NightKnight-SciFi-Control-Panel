@@ -1122,12 +1122,55 @@ h2 {
   font-size: 8px;
 }
 
-.footer {
+.ai-agent-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 12px;
+}
+
+.ai-agent-card {
+  padding: 14px;
+  border: 1px solid var(--line);
+  background: rgba(17, 22, 31, 0.78);
+}
+
+.ai-agent-heading {
   display: flex;
   justify-content: space-between;
-  padding: 28px 0 32px;
-  color: #a0aaba;
+  align-items: center;
+  margin-bottom: 6px;
+}
+
+.ai-agent-heading strong {
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.ai-agent-provider {
+  margin: 0 0 10px;
+  color: var(--muted);
   font-size: 9px;
+  font-family: var(--mono);
+  letter-spacing: 0.08em;
+}
+
+.ai-agent-details {
+  display: grid;
+  gap: 4px;
+  font-family: var(--mono);
+  font-size: 9px;
+  color: #a5afbe;
+}
+
+.ai-agent-note {
+  margin: 14px 0 0;
+  color: var(--muted);
+  font-size: 10px;
+  line-height: 1.45;
+}
+
+.ai-agent-panel .unavailable-badge {
+  font-size: 8px;
 }
 
 .sr-only {

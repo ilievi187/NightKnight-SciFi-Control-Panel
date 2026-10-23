@@ -105,6 +105,17 @@ export interface IntegrationStatus {
   reason: string;
 }
 
+export interface AiAgentStatus {
+  name: string;
+  provider: string;
+  status: "running" | "idle" | "failed" | "offline" | "unavailable";
+  current_task: string | null;
+  last_heartbeat: string | null;
+  model: string | null;
+  token_usage: number | null;
+  cost_usd: number | null;
+}
+
 export interface TailscaleMetrics {
   backend_state: string;
   connected: boolean;
