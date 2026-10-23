@@ -4,6 +4,7 @@ import type {
   CpuCoreMetrics,
   DiskIoMetrics,
   GpuMetrics,
+  HostEntry,
   HostMetrics,
   Metric,
   NetworkInterfaceMetrics,
@@ -441,6 +442,7 @@ function formatDuration(seconds: number): string {
 
 function App() {
   const [metrics, setMetrics] = useState<HostMetrics | null>(null);
+  const [hosts, setHosts] = useState<HostEntry[]>([]);
   const [apiState, setApiState] = useState<"connecting" | "online" | "offline">(
     "connecting",
   );
@@ -573,6 +575,13 @@ function App() {
     const timer = window.setInterval(() => void refresh(), 5_000);
     return () => window.clearInterval(timer);
   }, [refresh]);
+
+  useEffect(() => {
+    fetch("/api/hosts")
+      .then((r) => r.json())
+      .then((data) => setHosts(data))
+      .catch(() => {});
+  }, []);
 
   const timestamp = metrics
     ? new Date(metrics.generated_at_unix * 1_000)
@@ -761,6 +770,37 @@ function App() {
           </div>
         ) : (
           <div className="overview-loading">Waiting for telemetry…</div>
+        )}
+      </section>
+
+      <section className="host-registry" aria-label="Monitored hosts">
+        <div className="panel-heading">
+          <div>
+            <p className="eyebrow">HOST REGISTRY</p>
+            <h2>Monitored computers</h2>
+          </div>
+          <span className="panel-index">00</span>
+        </div>
+        {hosts.length > 0 ? (
+          <div className="host-registry-grid">
+            {hosts.map((host) => (
+              <article className="host-card" key={host.id}>
+                <div className="host-card-heading">
+                  <strong>{host.hostname}</strong>
+                  <span className={`host-status ${host.connection_status}`}>
+                    {host.connection_status.toUpperCase()}
+                  </span>
+                </div>
+                <p className="host-os">{host.operating_system}</p>
+                <div className="host-meta">
+                  <span>{host.telemetry_source}</span>
+                  {host.is_local && <span>LOCAL</span>}
+                </div>
+              </article>
+            ))}
+          </div>
+        ) : (
+          <p className="empty-copy">No hosts registered.</p>
         )}
       </section>
 

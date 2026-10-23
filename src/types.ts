@@ -105,6 +105,15 @@ export interface IntegrationStatus {
   reason: string;
 }
 
+export interface HostEntry {
+  id: string;
+  hostname: string;
+  operating_system: string;
+  connection_status: "connected" | "disconnected" | "unavailable";
+  telemetry_source: string;
+  is_local: boolean;
+}
+
 export interface AiAgentStatus {
   name: string;
   provider: string;
