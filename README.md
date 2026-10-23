@@ -31,6 +31,8 @@ The API binds to loopback only. It exposes:
 
 On Linux, the API reads the hostname and OS release files, CPU and memory counters in /proc, root filesystem capacity through statvfs, and interface counters in /proc/net/dev. Container runtime, GPU, remote probe, and cloud API integrations are marked unavailable until a local source or endpoint is configured.
 
+The `/api/metrics` response also includes `storage_volumes`, which reports capacity for mounted filesystems that expose usable space. Virtual filesystems such as procfs, sysfs, and tmpfs are omitted. The command center refreshes these readings with the rest of host telemetry and shows each mount point, filesystem type, device, and used capacity.
+
 ## Checks
 
 Run Rust unit tests and the frontend typecheck/build:

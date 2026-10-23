@@ -17,6 +17,16 @@ export interface DiskMetrics {
   mount_point: string;
 }
 
+export interface StorageVolumeMetrics {
+  device: string;
+  filesystem: string;
+  mount_point: string;
+  total_bytes: number;
+  available_bytes: number;
+  used_bytes: number;
+  used_percent: number;
+}
+
 export interface NetworkInterfaceMetrics {
   name: string;
   received_bytes: number;
@@ -37,6 +47,7 @@ export interface HostMetrics {
   memory: Metric<MemoryMetrics>;
   uptime_seconds: Metric<number>;
   root_disk: Metric<DiskMetrics>;
+  storage_volumes: Metric<StorageVolumeMetrics[]>;
   network_interfaces: Metric<NetworkInterfaceMetrics[]>;
   integrations: IntegrationStatus[];
 }

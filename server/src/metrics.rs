@@ -1,4 +1,6 @@
 use serde::Serialize;
+#[cfg(target_os = "linux")]
+use std::collections::BTreeMap;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 #[derive(Serialize)]
@@ -38,6 +40,17 @@ pub struct DiskMetrics {
 }
 
 #[derive(Serialize)]
+pub struct StorageVolumeMetrics {
+    pub device: String,
+    pub filesystem: String,
+    pub mount_point: String,
+    pub total_bytes: u64,
+    pub available_bytes: u64,
+    pub used_bytes: u64,
+    pub used_percent: f64,
+}
+
+#[derive(Serialize)]
 pub struct NetworkInterfaceMetrics {
     pub name: String,
     pub received_bytes: u64,
@@ -60,6 +73,7 @@ pub struct HostMetrics {
     pub memory: Metric<MemoryMetrics>,
     pub uptime_seconds: Metric<f64>,
     pub root_disk: Metric<DiskMetrics>,
+    pub storage_volumes: Metric<Vec<StorageVolumeMetrics>>,
     pub network_interfaces: Metric<Vec<NetworkInterfaceMetrics>>,
     pub integrations: Vec<IntegrationStatus>,
 }
@@ -78,6 +92,7 @@ pub async fn collect_host_metrics() -> HostMetrics {
         memory: memory(),
         uptime_seconds: uptime(),
         root_disk: root_disk(),
+        storage_volumes: storage_volumes(),
         network_interfaces: network_interfaces(),
         integrations: unavailable_integrations(),
     }
@@ -275,6 +290,129 @@ fn root_disk() -> Metric<DiskMetrics> {
     })
 }
 
+#[cfg(target_os = "linux")]
+fn storage_volumes() -> Metric<Vec<StorageVolumeMetrics>> {
+    use std::ffi::CString;
+
+    let contents = match std::fs::read_to_string("/proc/self/mounts") {
+        Ok(contents) => contents,
+        Err(_) => {
+            return Metric::unavailable("Linux mount data in /proc/self/mounts is unavailable.")
+        }
+    };
+
+    let mut volumes = BTreeMap::new();
+    for mount in parse_mount_records(&contents) {
+        if mount.mount_point.is_empty() || is_virtual_filesystem(&mount.filesystem) {
+            continue;
+        }
+        let Ok(path) = CString::new(mount.mount_point.as_bytes()) else {
+            continue;
+        };
+        let mut stats: libc::statvfs = unsafe { std::mem::zeroed() };
+        if unsafe { libc::statvfs(path.as_ptr(), &mut stats) } != 0 {
+            continue;
+        }
+
+        let block_size = if stats.f_frsize == 0 {
+            stats.f_bsize as u64
+        } else {
+            stats.f_frsize as u64
+        };
+        let total_bytes = (stats.f_blocks as u64).saturating_mul(block_size);
+        if total_bytes == 0 {
+            continue;
+        }
+        let available_bytes = (stats.f_bavail as u64)
+            .saturating_mul(block_size)
+            .min(total_bytes);
+        let free_bytes = (stats.f_bfree as u64)
+            .saturating_mul(block_size)
+            .min(total_bytes);
+        let used_bytes = total_bytes.saturating_sub(free_bytes);
+
+        volumes.insert(
+            mount.mount_point.clone(),
+            StorageVolumeMetrics {
+                device: mount.device,
+                filesystem: mount.filesystem,
+                mount_point: mount.mount_point,
+                total_bytes,
+                available_bytes,
+                used_bytes,
+                used_percent: used_bytes as f64 * 100.0 / total_bytes as f64,
+            },
+        );
+    }
+
+    Metric::available(volumes.into_values().collect())
+}
+
+#[cfg(not(target_os = "linux"))]
+fn storage_volumes() -> Metric<Vec<StorageVolumeMetrics>> {
+    Metric::unavailable("Mounted filesystem collection is only implemented for Linux.")
+}
+
+#[cfg(target_os = "linux")]
+struct MountRecord {
+    device: String,
+    mount_point: String,
+    filesystem: String,
+}
+
+#[cfg(target_os = "linux")]
+fn parse_mount_records(contents: &str) -> Vec<MountRecord> {
+    contents
+        .lines()
+        .filter_map(|line| {
+            let mut fields = line.split_whitespace();
+            Some(MountRecord {
+                device: decode_mount_field(fields.next()?),
+                mount_point: decode_mount_field(fields.next()?),
+                filesystem: fields.next()?.to_string(),
+            })
+        })
+        .collect()
+}
+
+#[cfg(target_os = "linux")]
+fn decode_mount_field(field: &str) -> String {
+    field
+        .replace(r"\040", " ")
+        .replace(r"\011", "\t")
+        .replace(r"\012", "\n")
+        .replace(r"\134", "\\")
+}
+
+#[cfg(target_os = "linux")]
+fn is_virtual_filesystem(filesystem: &str) -> bool {
+    matches!(
+        filesystem,
+        "proc"
+            | "sysfs"
+            | "devtmpfs"
+            | "devpts"
+            | "tmpfs"
+            | "ramfs"
+            | "cgroup"
+            | "cgroup2"
+            | "securityfs"
+            | "debugfs"
+            | "tracefs"
+            | "pstore"
+            | "configfs"
+            | "fusectl"
+            | "mqueue"
+            | "hugetlbfs"
+            | "bpf"
+            | "rpc_pipefs"
+            | "binfmt_misc"
+            | "efivarfs"
+            | "autofs"
+            | "nsfs"
+    )
+}
+
 #[cfg(not(target_os = "linux"))]
 fn root_disk() -> Metric<DiskMetrics> {
     Metric::unavailable("Root filesystem collection is only implemented for Linux.")
@@ -351,5 +489,19 @@ mod tests {
         assert_eq!(interfaces[0].name, "eth0");
         assert_eq!(interfaces[0].received_bytes, 1024);
         assert_eq!(interfaces[0].transmitted_bytes, 2048);
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn parses_mount_records_and_unescapes_mount_points() {
+        let records = parse_mount_records(
+            "/dev/sda1 / ext4 rw 0 0\nserver:/share /mnt/team\\040files nfs4 ro 0 0\nproc /proc proc rw 0 0\n",
+        );
+        assert_eq!(records.len(), 3);
+        assert_eq!(records[1].device, "server:/share");
+        assert_eq!(records[1].mount_point, "/mnt/team files");
+        assert_eq!(records[1].filesystem, "nfs4");
+        assert!(is_virtual_filesystem("proc"));
+        assert!(!is_virtual_filesystem("nfs4"));
     }
 }
