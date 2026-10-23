@@ -6,7 +6,7 @@ edition = "2021"
 [dependencies]
 axum = "0.8"
 serde = { version = "1", features = ["derive"] }
-tokio = { version = "1", features = ["macros", "rt-multi-thread", "net", "time"] }
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "net", "process", "time"] }
 
 [target.'cfg(target_os = "linux")'.dependencies]
 libc = "0.2"

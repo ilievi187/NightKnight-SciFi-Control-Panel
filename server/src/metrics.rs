@@ -58,6 +58,15 @@ pub struct NetworkInterfaceMetrics {
 }
 
 #[derive(Serialize)]
+pub struct GpuMetrics {
+    pub name: String,
+    pub utilization_percent: u8,
+    pub memory_total_bytes: u64,
+    pub memory_used_bytes: u64,
+    pub temperature_celsius: u16,
+}
+
+#[derive(Serialize)]
 pub struct IntegrationStatus {
     pub name: String,
     pub status: &'static str,
@@ -75,6 +84,7 @@ pub struct HostMetrics {
     pub root_disk: Metric<DiskMetrics>,
     pub storage_volumes: Metric<Vec<StorageVolumeMetrics>>,
     pub network_interfaces: Metric<Vec<NetworkInterfaceMetrics>>,
+    pub gpu_metrics: Metric<Vec<GpuMetrics>>,
     pub integrations: Vec<IntegrationStatus>,
 }
 
@@ -83,17 +93,19 @@ pub async fn collect_host_metrics() -> HostMetrics {
         .duration_since(UNIX_EPOCH)
         .map(|duration| duration.as_secs())
         .unwrap_or(0);
+    let (cpu_usage_percent, gpu_metrics) = tokio::join!(cpu_usage_percent(), gpu_metrics());
 
     HostMetrics {
         generated_at_unix,
         hostname: hostname(),
         operating_system: operating_system(),
-        cpu_usage_percent: cpu_usage_percent().await,
+        cpu_usage_percent,
         memory: memory(),
         uptime_seconds: uptime(),
         root_disk: root_disk(),
         storage_volumes: storage_volumes(),
         network_interfaces: network_interfaces(),
+        gpu_metrics,
         integrations: unavailable_integrations(),
     }
 }
@@ -101,7 +113,6 @@ pub async fn collect_host_metrics() -> HostMetrics {
 fn unavailable_integrations() -> Vec<IntegrationStatus> {
     [
         "Container runtime",
-        "GPU telemetry",
         "Remote probes",
         "Cloud provider APIs",
     ]
@@ -492,6 +503,84 @@ fn network_interfaces() -> Metric<Vec<NetworkInterfaceMetrics>> {
 }
 
 #[cfg(target_os = "linux")]
+async fn gpu_metrics() -> Metric<Vec<GpuMetrics>> {
+    use std::time::Duration;
+    use tokio::process::Command;
+
+    let result = tokio::time::timeout(
+        Duration::from_secs(2),
+        Command::new("nvidia-smi")
+            .args([
+                "--query-gpu=name,utilization.gpu,memory.total,memory.used,temperature.gpu",
+                "--format=csv,noheader,nounits",
+            ])
+            .kill_on_drop(true)
+            .output(),
+    )
+    .await;
+
+    match result {
+        Err(_) => Metric::unavailable("NVIDIA GPU telemetry did not respond within 2 seconds."),
+        Ok(Err(_)) => {
+            Metric::unavailable("The NVIDIA telemetry tool nvidia-smi is unavailable.")
+        }
+        Ok(Ok(output)) if !output.status.success() => {
+            Metric::unavailable("nvidia-smi could not read GPU telemetry.")
+        }
+        Ok(Ok(output)) => match String::from_utf8(output.stdout)
+            .ok()
+            .and_then(|contents| parse_nvidia_smi_output(&contents))
+        {
+            Some(gpus) => Metric::available(gpus),
+            None => Metric::unavailable(
+                "nvidia-smi returned incomplete or invalid GPU telemetry.",
+            ),
+        },
+    }
+}
+
+#[cfg(not(target_os = "linux"))]
+async fn gpu_metrics() -> Metric<Vec<GpuMetrics>> {
+    Metric::unavailable("GPU telemetry is only implemented for Linux NVIDIA drivers.")
+}
+
+#[cfg(target_os = "linux")]
+fn parse_nvidia_smi_output(contents: &str) -> Option<Vec<GpuMetrics>> {
+    let rows: Vec<&str> = contents.lines().filter(|line| !line.trim().is_empty()).collect();
+    if rows.is_empty() {
+        return None;
+    }
+
+    rows.into_iter()
+        .map(|row| {
+            let fields: Vec<&str> = row.split(',').map(str::trim).collect();
+            if fields.len() != 5 || fields[0].is_empty() {
+                return None;
+            }
+
+            let utilization_percent = fields[1].parse::<u8>().ok()?;
+            if utilization_percent > 100 {
+                return None;
+            }
+            let memory_total_mib = fields[2].parse::<u64>().ok()?;
+            let memory_used_mib = fields[3].parse::<u64>().ok()?;
+            if memory_total_mib == 0 || memory_used_mib > memory_total_mib {
+                return None;
+            }
+            let temperature_celsius = fields[4].parse::<u16>().ok()?;
+
+            Some(GpuMetrics {
+                name: fields[0].to_string(),
+                utilization_percent,
+                memory_total_bytes: memory_total_mib.saturating_mul(1024 * 1024),
+                memory_used_bytes: memory_used_mib.saturating_mul(1024 * 1024),
+                temperature_celsius,
+            })
+        })
+        .collect()
+}
+
+#[cfg(target_os = "linux")]
 fn parse_network_interfaces(contents: &str) -> Option<Vec<NetworkInterfaceMetrics>> {
     let mut interfaces = Vec::new();
     for line in contents.lines().skip(2) {
@@ -546,6 +635,32 @@ mod tests {
         assert_eq!(interfaces[0].name, "eth0");
         assert_eq!(interfaces[0].received_bytes, 1024);
         assert_eq!(interfaces[0].transmitted_bytes, 2048);
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn parses_nvidia_gpu_utilization_memory_and_temperature() {
+        let gpus = parse_nvidia_smi_output(
+            "NVIDIA RTX 6000 Ada Generation, 37, 49140, 12288, 64\nNVIDIA A10, 0, 23028, 0, 38\n",
+        )
+        .unwrap();
+
+        assert_eq!(gpus.len(), 2);
+        assert_eq!(gpus[0].name, "NVIDIA RTX 6000 Ada Generation");
+        assert_eq!(gpus[0].utilization_percent, 37);
+        assert_eq!(gpus[0].memory_total_bytes, 49_140 * 1024 * 1024);
+        assert_eq!(gpus[0].memory_used_bytes, 12_288 * 1024 * 1024);
+        assert_eq!(gpus[0].temperature_celsius, 64);
+        assert_eq!(gpus[1].memory_used_bytes, 0);
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn rejects_incomplete_or_out_of_range_nvidia_gpu_data() {
+        assert!(parse_nvidia_smi_output("").is_none());
+        assert!(parse_nvidia_smi_output("NVIDIA GPU, N/A, 8192, 1024, 54").is_none());
+        assert!(parse_nvidia_smi_output("NVIDIA GPU, 101, 8192, 1024, 54").is_none());
+        assert!(parse_nvidia_smi_output("NVIDIA GPU, 50, 8192, 8193, 54").is_none());
     }
 
     #[cfg(target_os = "linux")]
