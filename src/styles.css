@@ -335,11 +335,69 @@ h1 {
   font-size: 17px;
 }
 
-.section-heading {
-  display: flex;
-  justify-content: space-between;
-  align-items: end;
-  margin: 45px 0 18px;
+.system-overview {
+  margin: 0 0 24px;
+  padding: 16px 0;
+  border-top: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+}
+
+.overview-grid {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 16px;
+}
+
+.overview-item {
+  display: grid;
+  gap: 6px;
+}
+
+.overview-label {
+  font-family: var(--mono);
+  font-size: 8px;
+  letter-spacing: 0.12em;
+  color: var(--muted);
+}
+
+.overview-value {
+  font-size: 22px;
+  font-weight: 600;
+  letter-spacing: -0.04em;
+  color: #f1f4f8;
+}
+
+.overview-bar {
+  height: 3px;
+  background: rgba(197, 242, 102, 0.1);
+  border-radius: 2px;
+  overflow: hidden;
+}
+
+.overview-bar span {
+  display: block;
+  height: 100%;
+  background: linear-gradient(90deg, var(--green), var(--blue));
+  border-radius: 2px;
+  transition: width 0.6s ease;
+}
+
+.overview-loading {
+  color: var(--muted);
+  font-size: 11px;
+  padding: 8px 0;
+}
+
+@media (max-width: 900px) {
+  .overview-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 580px) {
+  .overview-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
 }
 
 .section-heading .eyebrow,
