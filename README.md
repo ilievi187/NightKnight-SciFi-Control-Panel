@@ -33,6 +33,8 @@ On Linux, the API reads the hostname and OS release files, CPU and memory counte
 
 The API also reports the Linux 1, 5, and 15 minute load averages from `/proc/loadavg`. These values are not normalized by CPU core count and are unavailable on other operating systems.
 
+When Linux exposes readable thermal zones under `/sys/class/thermal`, the API reports each zone's host-provided label and temperature in Celsius. The command center shows these as generic system thermal readings because zone labels and sensor coverage vary by device. Thermal readings are unavailable when the source cannot be read or no usable zones are exposed.
+
 The `/api/metrics` response also includes `storage_volumes`, which reports capacity for mounted filesystems that expose usable space. Virtual filesystems such as procfs, sysfs, and tmpfs are omitted. The command center refreshes these readings with the rest of host telemetry and shows each mount point, filesystem type, device, and used capacity.
 
 When the NVIDIA driver tool `nvidia-smi` is available, `/api/metrics` also reports GPU utilization, video memory use, and temperature for each NVIDIA GPU. The API runs a fixed read-only query with a two-second timeout. Missing tools, unsupported devices, or incomplete readings are reported as unavailable; the application does not send GPU commands or control the device.
