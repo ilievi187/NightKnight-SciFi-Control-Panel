@@ -294,21 +294,43 @@ fn root_disk() -> Metric<DiskMetrics> {
 fn storage_volumes() -> Metric<Vec<StorageVolumeMetrics>> {
     use std::ffi::CString;
 
-    let contents = match std::fs::read_to_string("/proc/self/mounts") {
+    let contents = match std::fs::read_to_string("/proc/self/mountinfo") {
         Ok(contents) => contents,
         Err(_) => {
-            return Metric::unavailable("Linux mount data in /proc/self/mounts is unavailable.")
+            return Metric::unavailable("Linux mount data in /proc/self/mountinfo is unavailable.")
         }
     };
 
-    let mut volumes = BTreeMap::new();
+    let mut mounts_by_point: BTreeMap<String, Vec<MountRecord>> = BTreeMap::new();
     for mount in parse_mount_records(&contents) {
-        if mount.mount_point.is_empty() || is_virtual_filesystem(&mount.filesystem) {
+        mounts_by_point
+            .entry(mount.mount_point.clone())
+            .or_default()
+            .push(mount);
+    }
+
+    let mut volumes = BTreeMap::new();
+    for (mount_point, mounts) in mounts_by_point {
+        if mount_point.is_empty() {
             continue;
         }
-        let Ok(path) = CString::new(mount.mount_point.as_bytes()) else {
+        let Ok(path) = CString::new(mount_point.as_bytes()) else {
             continue;
         };
+        let Some(active_mount_id) = mount_id_for_path(&path) else {
+            // Without an active mount ID, the mount table cannot reliably tell
+            // which record at this path supplies the capacity reported below.
+            continue;
+        };
+        let Some(mount) = select_mount_record(mounts, active_mount_id) else {
+            // A mount change between reading mountinfo and statx can leave the
+            // active mount absent from this snapshot. Skip the inconsistent row.
+            continue;
+        };
+        if is_virtual_filesystem(&mount.filesystem) {
+            continue;
+        }
+
         let mut stats: libc::statvfs = unsafe { std::mem::zeroed() };
         if unsafe { libc::statvfs(path.as_ptr(), &mut stats) } != 0 {
             continue;
@@ -332,11 +354,11 @@ fn storage_volumes() -> Metric<Vec<StorageVolumeMetrics>> {
         let used_bytes = total_bytes.saturating_sub(free_bytes);
 
         volumes.insert(
-            mount.mount_point.clone(),
+            mount_point.clone(),
             StorageVolumeMetrics {
                 device: mount.device,
                 filesystem: mount.filesystem,
-                mount_point: mount.mount_point,
+                mount_point,
                 total_bytes,
                 available_bytes,
                 used_bytes,
@@ -355,6 +377,7 @@ fn storage_volumes() -> Metric<Vec<StorageVolumeMetrics>> {
 
 #[cfg(target_os = "linux")]
 struct MountRecord {
+    mount_id: u64,
     device: String,
     mount_point: String,
     filesystem: String,
@@ -365,14 +388,48 @@ fn parse_mount_records(contents: &str) -> Vec<MountRecord> {
     contents
         .lines()
         .filter_map(|line| {
-            let mut fields = line.split_whitespace();
+            let (mount_fields, filesystem_fields) = line.split_once(" - ")?;
+            let mut mount_fields = mount_fields.split_whitespace();
+            let mount_id = mount_fields.next()?.parse().ok()?;
+            // Parent ID, major:minor, and filesystem root precede the mount point.
+            mount_fields.next()?;
+            mount_fields.next()?;
+            mount_fields.next()?;
+            let mount_point = decode_mount_field(mount_fields.next()?);
+            let mut filesystem_fields = filesystem_fields.split_whitespace();
             Some(MountRecord {
-                device: decode_mount_field(fields.next()?),
-                mount_point: decode_mount_field(fields.next()?),
-                filesystem: fields.next()?.to_string(),
+                mount_id,
+                filesystem: decode_mount_field(filesystem_fields.next()?),
+                device: decode_mount_field(filesystem_fields.next()?),
+                mount_point,
             })
         })
         .collect()
+}
+
+#[cfg(target_os = "linux")]
+fn select_mount_record(mounts: Vec<MountRecord>, active_mount_id: u64) -> Option<MountRecord> {
+    mounts
+        .into_iter()
+        .find(|mount| mount.mount_id == active_mount_id)
+}
+
+#[cfg(target_os = "linux")]
+fn mount_id_for_path(path: &std::ffi::CString) -> Option<u64> {
+    let mut stats: libc::statx = unsafe { std::mem::zeroed() };
+    let result = unsafe {
+        libc::statx(
+            libc::AT_FDCWD,
+            path.as_ptr(),
+            libc::AT_STATX_SYNC_AS_STAT,
+            libc::STATX_MNT_ID,
+            &mut stats,
+        )
+    };
+    if result != 0 || stats.stx_mask & libc::STATX_MNT_ID == 0 {
+        return None;
+    }
+    Some(stats.stx_mnt_id)
 }
 
 #[cfg(target_os = "linux")]
@@ -493,14 +550,18 @@ mod tests {
 
     #[cfg(target_os = "linux")]
     #[test]
-    fn parses_mount_records_and_unescapes_mount_points() {
+    fn selects_active_mount_when_mountinfo_has_duplicate_mount_points() {
         let records = parse_mount_records(
-            "/dev/sda1 / ext4 rw 0 0\nserver:/share /mnt/team\\040files nfs4 ro 0 0\nproc /proc proc rw 0 0\n",
+            "37 35 8:1 / /mnt/team\\040files rw - ext4 /dev/visible rw\n36 35 0:42 / /mnt/team\\040files rw - tmpfs tmpfs rw\n38 36 0:42 /proc /proc rw - proc proc rw\n",
         );
         assert_eq!(records.len(), 3);
-        assert_eq!(records[1].device, "server:/share");
-        assert_eq!(records[1].mount_point, "/mnt/team files");
-        assert_eq!(records[1].filesystem, "nfs4");
+        assert_eq!(records[0].mount_point, "/mnt/team files");
+        assert_eq!(records[0].filesystem, "ext4");
+        assert_eq!(records[0].device, "/dev/visible");
+        let active_mount = select_mount_record(records, 37).unwrap();
+        assert_eq!(active_mount.mount_id, 37);
+        assert_eq!(active_mount.device, "/dev/visible");
+        assert_eq!(active_mount.filesystem, "ext4");
         assert!(is_virtual_filesystem("proc"));
         assert!(!is_virtual_filesystem("nfs4"));
     }
