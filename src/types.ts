@@ -9,6 +9,13 @@ export interface MemoryMetrics {
   used_percent: number;
 }
 
+export interface SwapMetrics {
+  total_bytes: number;
+  free_bytes: number;
+  used_bytes: number;
+  used_percent: number;
+}
+
 export interface DiskMetrics {
   total_bytes: number;
   available_bytes: number;
@@ -75,6 +82,7 @@ export interface HostMetrics {
   load_average: Metric<LoadAverageMetrics>;
   thermal_zones: Metric<ThermalZoneMetrics[]>;
   memory: Metric<MemoryMetrics>;
+  swap: Metric<SwapMetrics>;
   uptime_seconds: Metric<number>;
   root_disk: Metric<DiskMetrics>;
   storage_volumes: Metric<StorageVolumeMetrics[]>;

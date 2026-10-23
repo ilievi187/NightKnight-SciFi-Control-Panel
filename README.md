@@ -33,6 +33,8 @@ On Linux, the API reads the hostname and OS release files, CPU and memory counte
 
 The API also reports the Linux 1, 5, and 15 minute load averages from `/proc/loadavg`. These values are not normalized by CPU core count and are unavailable on other operating systems.
 
+Linux swap capacity is read from `/proc/meminfo` and shown as used and free space. If swap is disabled, the command center reports it as disabled; missing or invalid source data is reported as unavailable.
+
 When Linux exposes readable thermal zones under `/sys/class/thermal`, the API reports each zone's host-provided label and temperature in Celsius. The command center shows these as generic system thermal readings because zone labels and sensor coverage vary by device. Thermal readings are unavailable when the source cannot be read or no usable zones are exposed.
 
 The `/api/metrics` response also includes `storage_volumes`, which reports capacity for mounted filesystems that expose usable space. When a filesystem reports inode capacity, the API includes total, free, and used inode counts. The command center refreshes these readings with the rest of host telemetry and shows each mount point, filesystem type, device, space use, and inode use. Inode readings are omitted when a filesystem does not report inode capacity. Virtual filesystems such as procfs, sysfs, and tmpfs are omitted.
