@@ -332,6 +332,7 @@ fn system_pressure() -> Metric<SystemPressureMetrics> {
 fn parse_pressure_resource(contents: &str) -> Option<ResourcePressureMetrics> {
     let mut some = None;
     let mut full = None;
+    let mut full_seen = false;
     for line in contents.lines().filter(|line| !line.trim().is_empty()) {
         let mut fields = line.split_whitespace();
         let kind = fields.next()?;
@@ -343,9 +344,11 @@ fn parse_pressure_resource(contents: &str) -> Option<ResourcePressureMetrics> {
                 }
             }
             "full" => {
-                let averages = parse_pressure_averages(fields)?;
-                if full.replace(averages).is_some() {
-                    return None;
+                if full_seen {
+                    full = None;
+                } else {
+                    full_seen = true;
+                    full = parse_pressure_averages(fields);
                 }
             }
             _ => {}
@@ -367,7 +370,9 @@ fn parse_pressure_averages<'a>(
     let mut total_microseconds = None;
 
     for field in fields {
-        let (key, value) = field.split_once('=')?;
+        let Some((key, value)) = field.split_once('=') else {
+            continue;
+        };
         match key {
             "avg10" => {
                 if avg10_percent
@@ -1175,6 +1180,19 @@ mod tests {
         assert_eq!(memory.some.total_microseconds, 23_456);
         assert_eq!(memory.full.as_ref().unwrap().avg10_percent, 0.5);
         assert_eq!(memory.full.unwrap().total_microseconds, 4_567);
+
+        let malformed_full = parse_pressure_resource(
+            "some avg10=1 avg60=2 avg300=3 total=123\nfull avg10=bad avg60=2 avg300=3 total=456\n",
+        )
+        .unwrap();
+        assert_eq!(malformed_full.some.total_microseconds, 123);
+        assert!(malformed_full.full.is_none());
+
+        let future_field = parse_pressure_resource(
+            "some avg10=1 avg60=2 avg300=3 total=789 newfield\n",
+        )
+        .unwrap();
+        assert_eq!(future_field.some.total_microseconds, 789);
 
         assert!(parse_pressure_resource("").is_none());
         assert!(parse_pressure_resource("full avg10=0 avg60=0 avg300=0 total=0\n").is_none());
