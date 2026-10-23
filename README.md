@@ -47,4 +47,7 @@ Build the frontend and serve the production build locally:
 
 The preview server also forwards /api requests to the local Rust API.
 
-The UI polls the local API every five seconds. It does not connect to external services.
+The UI polls the local API every five seconds. Metric cards show up to 24 recent
+CPU, memory, and root filesystem samples in browser memory. History resets when
+the page reloads. Unavailable samples create gaps in the chart. The UI does not
+connect to external services.

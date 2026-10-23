@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { HostMetrics, Metric } from "./types";
 
 type MetricCardProps<T> = {
@@ -7,7 +7,16 @@ type MetricCardProps<T> = {
   format: (value: T) => string;
   detail?: (value: T) => string;
   index: string;
+  history?: Array<number | null>;
 };
+
+type TelemetrySample = {
+  cpu: number | null;
+  memory: number | null;
+  disk: number | null;
+};
+
+const MAX_HISTORY_SAMPLES = 24;
 
 function MetricCard<T>({
   label,
@@ -15,6 +24,7 @@ function MetricCard<T>({
   format,
   detail,
   index,
+  history,
 }: MetricCardProps<T>) {
   return (
     <article className="metric-card">
@@ -27,6 +37,15 @@ function MetricCard<T>({
         <>
           <p className="metric-value">{format(metric.value)}</p>
           {detail && <p className="metric-detail">{detail(metric.value)}</p>}
+          {history && (
+            <div className="metric-history">
+              <div className="metric-history-label">
+                <span>RECENT ACTIVITY</span>
+                <span>~2 MIN</span>
+              </div>
+              <Sparkline values={history} label={label} />
+            </div>
+          )}
         </>
       ) : (
         <div className="unavailable-value">
@@ -35,6 +54,72 @@ function MetricCard<T>({
         </div>
       )}
     </article>
+  );
+}
+
+function Sparkline({
+  values,
+  label,
+}: {
+  values: Array<number | null>;
+  label: string;
+}) {
+  const segments: string[][] = [];
+  let segment: string[] = [];
+  const lastIndex = Math.max(values.length - 1, 1);
+
+  values.forEach((value, index) => {
+    if (value === null || !Number.isFinite(value)) {
+      if (segment.length > 0) segments.push(segment);
+      segment = [];
+      return;
+    }
+
+    const x = (index / lastIndex) * 160;
+    const y = 38 - (Math.min(100, Math.max(0, value)) / 100) * 34;
+    segment.push(`${x},${y}`);
+  });
+  if (segment.length > 0) segments.push(segment);
+
+  let latest: { x: number; y: number } | null = null;
+  for (let index = values.length - 1; index >= 0; index -= 1) {
+    const value = values[index];
+    if (value !== null && Number.isFinite(value)) {
+      latest = {
+        x: (index / lastIndex) * 160,
+        y: 38 - (Math.min(100, Math.max(0, value)) / 100) * 34,
+      };
+      break;
+    }
+  }
+
+  return (
+    <svg
+      className="sparkline"
+      viewBox="0 0 160 42"
+      preserveAspectRatio="none"
+      role="img"
+      aria-label={`${label} history from recent host polling samples`}
+    >
+      <line className="sparkline-grid" x1="0" y1="4" x2="160" y2="4" />
+      <line className="sparkline-grid" x1="0" y1="21" x2="160" y2="21" />
+      <line className="sparkline-grid" x1="0" y1="38" x2="160" y2="38" />
+      {segments.map((points, index) => (
+        <polyline
+          className="sparkline-line"
+          key={index}
+          points={points.join(" ")}
+        />
+      ))}
+      {latest && (
+        <circle
+          className="sparkline-dot"
+          cx={latest.x}
+          cy={latest.y}
+          r="2.5"
+        />
+      )}
+    </svg>
   );
 }
 
@@ -67,23 +152,52 @@ function App() {
   );
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+  const [history, setHistory] = useState<TelemetrySample[]>([]);
+  const refreshInFlight = useRef(false);
 
   const refresh = useCallback(async () => {
+    if (refreshInFlight.current) return;
+    refreshInFlight.current = true;
     setLoading(true);
     try {
       const response = await fetch("/api/metrics", { cache: "no-store" });
       if (!response.ok) throw new Error("API returned HTTP " + response.status);
       const payload = (await response.json()) as HostMetrics;
       setMetrics(payload);
+      setHistory((current) =>
+        [
+          ...current,
+          {
+            cpu:
+              payload.cpu_usage_percent.status === "available"
+                ? payload.cpu_usage_percent.value
+                : null,
+            memory:
+              payload.memory.status === "available"
+                ? payload.memory.value.used_percent
+                : null,
+            disk:
+              payload.root_disk.status === "available"
+                ? payload.root_disk.value.used_percent
+                : null,
+          },
+        ].slice(-MAX_HISTORY_SAMPLES),
+      );
       setApiState("online");
       setError("");
     } catch (cause) {
       setMetrics(null);
+      setHistory((current) =>
+        [...current, { cpu: null, memory: null, disk: null }].slice(
+          -MAX_HISTORY_SAMPLES,
+        ),
+      );
       setApiState("offline");
       setError(
         cause instanceof Error ? cause.message : "Could not reach the local API.",
       );
     } finally {
+      refreshInFlight.current = false;
       setLoading(false);
     }
   }, []);
@@ -201,6 +315,11 @@ function App() {
               metric={metrics.cpu_usage_percent}
               format={(value) => value.toFixed(1) + "%"}
               detail={() => "Measured from Linux CPU counters"}
+              history={
+                history.length
+                  ? history.map((sample) => sample.cpu)
+                  : undefined
+              }
             />
             <MetricCard
               index="02"
@@ -211,6 +330,11 @@ function App() {
                 formatBytes(value.used_bytes) +
                 " used of " +
                 formatBytes(value.total_bytes)
+              }
+              history={
+                history.length
+                  ? history.map((sample) => sample.memory)
+                  : undefined
               }
             />
             <MetricCard
@@ -229,6 +353,11 @@ function App() {
                 formatBytes(value.used_bytes) +
                 " used of " +
                 formatBytes(value.total_bytes)
+              }
+              history={
+                history.length
+                  ? history.map((sample) => sample.disk)
+                  : undefined
               }
             />
           </>
