@@ -67,6 +67,13 @@ pub struct GpuMetrics {
 }
 
 #[derive(Serialize)]
+pub struct LoadAverageMetrics {
+    pub one_minute: f64,
+    pub five_minutes: f64,
+    pub fifteen_minutes: f64,
+}
+
+#[derive(Serialize)]
 pub struct IntegrationStatus {
     pub name: String,
     pub status: &'static str,
@@ -79,6 +86,7 @@ pub struct HostMetrics {
     pub hostname: Metric<String>,
     pub operating_system: Metric<String>,
     pub cpu_usage_percent: Metric<f64>,
+    pub load_average: Metric<LoadAverageMetrics>,
     pub memory: Metric<MemoryMetrics>,
     pub uptime_seconds: Metric<f64>,
     pub root_disk: Metric<DiskMetrics>,
@@ -100,6 +108,7 @@ pub async fn collect_host_metrics() -> HostMetrics {
         hostname: hostname(),
         operating_system: operating_system(),
         cpu_usage_percent,
+        load_average: load_average(),
         memory: memory(),
         uptime_seconds: uptime(),
         root_disk: root_disk(),
@@ -183,6 +192,41 @@ async fn cpu_usage_percent() -> Metric<f64> {
 #[cfg(not(target_os = "linux"))]
 async fn cpu_usage_percent() -> Metric<f64> {
     Metric::unavailable("CPU utilization collection is only implemented for Linux.")
+}
+
+#[cfg(target_os = "linux")]
+fn load_average() -> Metric<LoadAverageMetrics> {
+    match std::fs::read_to_string("/proc/loadavg")
+        .ok()
+        .and_then(|contents| parse_load_average(&contents))
+    {
+        Some(values) => Metric::available(values),
+        None => Metric::unavailable("Linux load averages in /proc/loadavg are unavailable."),
+    }
+}
+
+#[cfg(not(target_os = "linux"))]
+fn load_average() -> Metric<LoadAverageMetrics> {
+    Metric::unavailable("System load averages are only collected on Linux.")
+}
+
+#[cfg(target_os = "linux")]
+fn parse_load_average(contents: &str) -> Option<LoadAverageMetrics> {
+    let mut fields = contents.split_whitespace();
+    let one_minute = fields.next()?.parse::<f64>().ok()?;
+    let five_minutes = fields.next()?.parse::<f64>().ok()?;
+    let fifteen_minutes = fields.next()?.parse::<f64>().ok()?;
+    if [one_minute, five_minutes, fifteen_minutes]
+        .iter()
+        .any(|value| !value.is_finite() || *value < 0.0)
+    {
+        return None;
+    }
+    Some(LoadAverageMetrics {
+        one_minute,
+        five_minutes,
+        fifteen_minutes,
+    })
 }
 
 #[cfg(target_os = "linux")]
@@ -624,6 +668,20 @@ mod tests {
             Some((635, 450))
         );
         assert_eq!(parse_cpu_counters("cpu 10 20"), None);
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn parses_linux_load_averages_and_rejects_invalid_values() {
+        let values = parse_load_average("0.42 1.25 2.75 2/105 12345").unwrap();
+        assert_eq!(values.one_minute, 0.42);
+        assert_eq!(values.five_minutes, 1.25);
+        assert_eq!(values.fifteen_minutes, 2.75);
+
+        assert!(parse_load_average("0.42 1.25").is_none());
+        assert!(parse_load_average("0.42 bad 2.75").is_none());
+        assert!(parse_load_average("0.42 -1 2.75").is_none());
+        assert!(parse_load_average("NaN 1 2").is_none());
     }
 
     #[cfg(target_os = "linux")]
