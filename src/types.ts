@@ -65,6 +65,11 @@ export interface LoadAverageMetrics {
   total_tasks: number;
 }
 
+export interface CpuCoreMetrics {
+  core_id: number;
+  utilization_percent: number;
+}
+
 export interface ThermalZoneMetrics {
   name: string;
   temperature_celsius: number;
@@ -81,6 +86,7 @@ export interface HostMetrics {
   hostname: Metric<string>;
   operating_system: Metric<string>;
   cpu_usage_percent: Metric<number>;
+  cpu_cores: Metric<CpuCoreMetrics[]>;
   load_average: Metric<LoadAverageMetrics>;
   thermal_zones: Metric<ThermalZoneMetrics[]>;
   memory: Metric<MemoryMetrics>;

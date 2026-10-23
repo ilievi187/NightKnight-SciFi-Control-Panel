@@ -96,6 +96,12 @@ pub struct LoadAverageMetrics {
 }
 
 #[derive(Serialize)]
+pub struct CpuCoreMetrics {
+    pub core_id: u32,
+    pub utilization_percent: f64,
+}
+
+#[derive(Serialize)]
 pub struct ThermalZoneMetrics {
     pub name: String,
     pub temperature_celsius: f64,
@@ -114,6 +120,7 @@ pub struct HostMetrics {
     pub hostname: Metric<String>,
     pub operating_system: Metric<String>,
     pub cpu_usage_percent: Metric<f64>,
+    pub cpu_cores: Metric<Vec<CpuCoreMetrics>>,
     pub load_average: Metric<LoadAverageMetrics>,
     pub thermal_zones: Metric<Vec<ThermalZoneMetrics>>,
     pub memory: Metric<MemoryMetrics>,
@@ -131,13 +138,15 @@ pub async fn collect_host_metrics() -> HostMetrics {
         .duration_since(UNIX_EPOCH)
         .map(|duration| duration.as_secs())
         .unwrap_or(0);
-    let (cpu_usage_percent, gpu_metrics) = tokio::join!(cpu_usage_percent(), gpu_metrics());
+    let (cpu_usage_percent, cpu_cores, gpu_metrics) =
+        tokio::join!(cpu_usage_percent(), cpu_cores(), gpu_metrics());
 
     HostMetrics {
         generated_at_unix,
         hostname: hostname(),
         operating_system: operating_system(),
         cpu_usage_percent,
+        cpu_cores,
         load_average: load_average(),
         thermal_zones: thermal_zones(),
         memory: memory(),
@@ -219,6 +228,33 @@ async fn cpu_usage_percent() -> Metric<f64> {
     let busy_delta = total_delta.saturating_sub(idle_delta);
     let percent = (busy_delta as f64 * 100.0 / total_delta as f64).clamp(0.0, 100.0);
     Metric::available((percent * 10.0).round() / 10.0)
+}
+
+#[cfg(target_os = "linux")]
+async fn cpu_cores() -> Metric<Vec<CpuCoreMetrics>> {
+    let first = match read_cpu_core_counters() {
+        Some(counters) => counters,
+        None => {
+            return Metric::unavailable("Linux per-core CPU counters in /proc/stat are unavailable.")
+        }
+    };
+    tokio::time::sleep(std::time::Duration::from_millis(160)).await;
+    let second = match read_cpu_core_counters() {
+        Some(counters) => counters,
+        None => {
+            return Metric::unavailable("Linux per-core CPU counters in /proc/stat are unavailable.")
+        }
+    };
+    let cores = calculate_cpu_core_usage(&first, &second);
+    if cores.is_empty() {
+        return Metric::unavailable("Linux per-core CPU counters did not advance during the sample.");
+    }
+    Metric::available(cores)
+}
+
+#[cfg(not(target_os = "linux"))]
+async fn cpu_cores() -> Metric<Vec<CpuCoreMetrics>> {
+    Metric::unavailable("Per-core CPU utilization is only collected on Linux.")
 }
 
 #[cfg(not(target_os = "linux"))]
@@ -334,9 +370,42 @@ fn read_cpu_counters() -> Option<(u64, u64)> {
 }
 
 #[cfg(target_os = "linux")]
+fn read_cpu_core_counters() -> Option<BTreeMap<u32, (u64, u64)>> {
+    let contents = std::fs::read_to_string("/proc/stat").ok()?;
+    parse_cpu_core_counters(&contents)
+}
+
+#[cfg(target_os = "linux")]
 fn parse_cpu_counters(line: &str) -> Option<(u64, u64)> {
+    parse_cpu_counters_for_name(line, "cpu")
+}
+
+#[cfg(target_os = "linux")]
+fn parse_cpu_core_counters(contents: &str) -> Option<BTreeMap<u32, (u64, u64)>> {
+    let mut cores = BTreeMap::new();
+    for line in contents.lines() {
+        let Some(name) = line.split_whitespace().next() else {
+            continue;
+        };
+        let Some(core_id) = name
+            .strip_prefix("cpu")
+            .filter(|suffix| !suffix.is_empty())
+            .and_then(|suffix| suffix.parse::<u32>().ok())
+        else {
+            continue;
+        };
+        let counters = parse_cpu_counters_for_name(line, name)?;
+        if cores.insert(core_id, counters).is_some() {
+            return None;
+        }
+    }
+    (!cores.is_empty()).then_some(cores)
+}
+
+#[cfg(target_os = "linux")]
+fn parse_cpu_counters_for_name(line: &str, expected_name: &str) -> Option<(u64, u64)> {
     let mut fields = line.split_whitespace();
-    if fields.next()? != "cpu" {
+    if fields.next()? != expected_name {
         return None;
     }
     let counters: Vec<u64> = fields.map(str::parse).collect::<Result<_, _>>().ok()?;
@@ -344,9 +413,37 @@ fn parse_cpu_counters(line: &str) -> Option<(u64, u64)> {
         return None;
     }
     // Linux guest and guest_nice are already included in user and nice.
-    let total = counters.iter().take(8).copied().sum();
-    let idle = counters[3].saturating_add(counters.get(4).copied().unwrap_or(0));
+    let total = counters
+        .iter()
+        .take(8)
+        .try_fold(0u64, |sum, counter| sum.checked_add(*counter))?;
+    let idle = counters[3].checked_add(counters.get(4).copied().unwrap_or(0))?;
     Some((total, idle))
+}
+
+#[cfg(target_os = "linux")]
+fn calculate_cpu_core_usage(
+    previous: &BTreeMap<u32, (u64, u64)>,
+    current: &BTreeMap<u32, (u64, u64)>,
+) -> Vec<CpuCoreMetrics> {
+    current
+        .iter()
+        .filter_map(|(core_id, (total, idle))| {
+            let (previous_total, previous_idle) = previous.get(core_id)?;
+            let total_delta = total.checked_sub(*previous_total)?;
+            let idle_delta = idle.checked_sub(*previous_idle)?;
+            if total_delta == 0 || idle_delta > total_delta {
+                return None;
+            }
+            let busy_delta = total_delta - idle_delta;
+            let utilization_percent = (busy_delta as f64 * 100.0 / total_delta as f64)
+                .clamp(0.0, 100.0);
+            Some(CpuCoreMetrics {
+                core_id: *core_id,
+                utilization_percent: (utilization_percent * 10.0).round() / 10.0,
+            })
+        })
+        .collect()
 }
 
 #[cfg(target_os = "linux")]
@@ -883,6 +980,48 @@ mod tests {
             Some((635, 450))
         );
         assert_eq!(parse_cpu_counters("cpu 10 20"), None);
+        assert_eq!(
+            parse_cpu_counters("cpu 18446744073709551615 1 0 0"),
+            None
+        );
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn parses_per_core_cpu_counters_and_calculates_usage_from_matching_samples() {
+        let first = parse_cpu_core_counters(
+            "cpu 300 0 150 1100 30 0 0 0\ncpu0 100 0 50 400 10 0 0 0\ncpu1 200 0 100 700 20 0 0 0\nintr 42\n",
+        )
+        .unwrap();
+        assert_eq!(first.get(&0), Some(&(560, 410)));
+        assert_eq!(first.get(&1), Some(&(1_020, 720)));
+
+        let second = parse_cpu_core_counters(
+            "cpu 500 0 250 1300 50 0 0 0\ncpu0 140 0 70 440 10 0 0 0\ncpu1 240 0 120 740 20 0 0 0\ncpu3 100 0 50 200 10 0 0 0\n",
+        )
+        .unwrap();
+        let cores = calculate_cpu_core_usage(&first, &second);
+
+        assert_eq!(cores.len(), 2);
+        assert_eq!(cores[0].core_id, 0);
+        assert_eq!(cores[0].utilization_percent, 60.0);
+        assert_eq!(cores[1].core_id, 1);
+        assert_eq!(cores[1].utilization_percent, 60.0);
+        assert!(parse_cpu_core_counters("cpu 300 0 150 1100\n").is_none());
+        assert!(parse_cpu_core_counters("cpu0 100 0 nope 400\n").is_none());
+        assert!(parse_cpu_core_counters("cpu0 100 0 50 400\ncpu0 101 0 50 400\n").is_none());
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn skips_cpu_cores_with_reset_or_non_advancing_counters() {
+        let first = BTreeMap::from([(0, (100, 50)), (1, (200, 100)), (2, (300, 150))]);
+        let second = BTreeMap::from([(0, (120, 60)), (1, (200, 100)), (2, (50, 20))]);
+
+        let cores = calculate_cpu_core_usage(&first, &second);
+        assert_eq!(cores.len(), 1);
+        assert_eq!(cores[0].core_id, 0);
+        assert_eq!(cores[0].utilization_percent, 50.0);
     }
 
     #[cfg(target_os = "linux")]

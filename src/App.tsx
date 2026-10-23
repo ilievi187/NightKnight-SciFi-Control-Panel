@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type {
+  CpuCoreMetrics,
   GpuMetrics,
   HostMetrics,
   Metric,
@@ -192,6 +193,29 @@ function GpuCard({ gpu }: { gpu: GpuMetrics }) {
         </div>
       </div>
     </article>
+  );
+}
+
+function CpuCoreMeter({ core }: { core: CpuCoreMetrics }) {
+  const utilization = Math.min(100, Math.max(0, core.utilization_percent));
+
+  return (
+    <div className="cpu-core-row">
+      <div className="cpu-core-heading">
+        <strong>CORE {core.core_id}</strong>
+        <span>{utilization.toFixed(1)}%</span>
+      </div>
+      <div
+        className="gpu-meter cpu-core-meter"
+        role="meter"
+        aria-label={`CPU core ${core.core_id} utilization`}
+        aria-valuemin={0}
+        aria-valuemax={100}
+        aria-valuenow={utilization}
+      >
+        <span style={{ width: `${utilization}%` }} />
+      </div>
+    </div>
   );
 }
 
@@ -617,6 +641,38 @@ function App() {
         )}
       </section>
 
+      <section className="panel cpu-cores-panel" aria-label="CPU core activity">
+        <div className="panel-heading">
+          <div>
+            <p className="eyebrow">PROCESSOR DETAIL</p>
+            <h2>Per-core utilization</h2>
+          </div>
+          <span className="panel-index">07</span>
+        </div>
+        {metrics?.cpu_cores.status === "available" ? (
+          metrics.cpu_cores.value.length > 0 ? (
+            <div className="cpu-core-grid">
+              {metrics.cpu_cores.value.map((core) => (
+                <CpuCoreMeter key={core.core_id} core={core} />
+              ))}
+            </div>
+          ) : (
+            <p className="empty-copy">No CPU core counters were reported.</p>
+          )
+        ) : (
+          <Unavailable
+            reason={
+              metrics?.cpu_cores.status === "unavailable"
+                ? metrics.cpu_cores.reason
+                : "Waiting for host data."
+            }
+          />
+        )}
+        <p className="cpu-core-note">
+          Read-only Linux counter deltas. New or reset cores appear after two valid samples.
+        </p>
+      </section>
+
       <section className="lower-grid">
         <article className="panel network-panel">
           <div className="panel-heading">
@@ -624,7 +680,7 @@ function App() {
               <p className="eyebrow">LIVE THROUGHPUT</p>
               <h2>Network interfaces</h2>
             </div>
-            <span className="panel-index">07</span>
+            <span className="panel-index">08</span>
           </div>
           {metrics?.network_interfaces.status === "available" ? (
             metrics.network_interfaces.value.length > 0 ? (
@@ -680,7 +736,7 @@ function App() {
               <p className="eyebrow">OPTIONAL SOURCES</p>
               <h2>Integrations</h2>
             </div>
-            <span className="panel-index">08</span>
+            <span className="panel-index">09</span>
           </div>
           {metrics ? (
             <div className="integration-list">
@@ -707,7 +763,7 @@ function App() {
             <p className="eyebrow">LOCAL CAPACITY</p>
             <h2>Mounted volumes</h2>
           </div>
-          <span className="panel-index">09</span>
+          <span className="panel-index">10</span>
         </div>
         {metrics?.storage_volumes.status === "available" ? (
           metrics.storage_volumes.value.length > 0 ? (
@@ -736,7 +792,7 @@ function App() {
             <p className="eyebrow">LOCAL ACCELERATOR STATUS</p>
             <h2>GPU telemetry</h2>
           </div>
-          <span className="panel-index">10</span>
+          <span className="panel-index">11</span>
         </div>
         {metrics?.gpu_metrics.status === "available" ? (
           metrics.gpu_metrics.value.length > 0 ? (
@@ -768,7 +824,7 @@ function App() {
             <p className="eyebrow">THERMAL MONITORING</p>
             <h2>System thermal zones</h2>
           </div>
-          <span className="panel-index">11</span>
+          <span className="panel-index">12</span>
         </div>
         {metrics?.thermal_zones.status === "available" ? (
           <div className="thermal-zone-grid">
