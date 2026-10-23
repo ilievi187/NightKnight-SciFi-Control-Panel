@@ -37,6 +37,16 @@ pub struct DiskMetrics {
     pub used_bytes: u64,
     pub used_percent: f64,
     pub mount_point: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub inode_usage: Option<InodeMetrics>,
+}
+
+#[derive(Serialize)]
+pub struct InodeMetrics {
+    pub total: u64,
+    pub free: u64,
+    pub used: u64,
+    pub used_percent: f64,
 }
 
 #[derive(Serialize)]
@@ -48,6 +58,8 @@ pub struct StorageVolumeMetrics {
     pub available_bytes: u64,
     pub used_bytes: u64,
     pub used_percent: f64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub inode_usage: Option<InodeMetrics>,
 }
 
 #[derive(Serialize)]
@@ -410,6 +422,7 @@ fn root_disk() -> Metric<DiskMetrics> {
         used_bytes,
         used_percent: used_bytes as f64 * 100.0 / total_bytes as f64,
         mount_point: "/".to_string(),
+        inode_usage: inode_usage(stats.f_files as u64, stats.f_ffree as u64),
     })
 }
 
@@ -468,6 +481,7 @@ fn storage_volumes() -> Metric<Vec<StorageVolumeMetrics>> {
         if total_bytes == 0 {
             continue;
         }
+        let inode_usage = inode_usage(stats.f_files as u64, stats.f_ffree as u64);
         let available_bytes = (stats.f_bavail as u64)
             .saturating_mul(block_size)
             .min(total_bytes);
@@ -486,11 +500,26 @@ fn storage_volumes() -> Metric<Vec<StorageVolumeMetrics>> {
                 available_bytes,
                 used_bytes,
                 used_percent: used_bytes as f64 * 100.0 / total_bytes as f64,
+                inode_usage,
             },
         );
     }
 
     Metric::available(volumes.into_values().collect())
+}
+
+fn inode_usage(total: u64, free: u64) -> Option<InodeMetrics> {
+    if total == 0 {
+        return None;
+    }
+    let free = free.min(total);
+    let used = total - free;
+    Some(InodeMetrics {
+        total,
+        free,
+        used,
+        used_percent: used as f64 * 100.0 / total as f64,
+    })
 }
 
 #[cfg(not(target_os = "linux"))]
@@ -715,6 +744,21 @@ fn parse_network_interfaces(contents: &str) -> Option<Vec<NetworkInterfaceMetric
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn calculates_inode_usage_and_omits_unknown_capacity() {
+        let usage = inode_usage(1_000, 250).unwrap();
+        assert_eq!(usage.total, 1_000);
+        assert_eq!(usage.free, 250);
+        assert_eq!(usage.used, 750);
+        assert_eq!(usage.used_percent, 75.0);
+
+        let full = inode_usage(4, 9).unwrap();
+        assert_eq!(full.free, 4);
+        assert_eq!(full.used, 0);
+        assert_eq!(full.used_percent, 0.0);
+        assert!(inode_usage(0, 0).is_none());
+    }
 
     #[cfg(target_os = "linux")]
     #[test]
