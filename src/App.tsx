@@ -64,8 +64,8 @@ function Sparkline({
   values: Array<number | null>;
   label: string;
 }) {
-  const segments: string[][] = [];
-  let segment: string[] = [];
+  const segments: Array<Array<{ index: number; x: number; y: number }>> = [];
+  let segment: Array<{ index: number; x: number; y: number }> = [];
   const lastIndex = Math.max(values.length - 1, 1);
 
   values.forEach((value, index) => {
@@ -77,15 +77,16 @@ function Sparkline({
 
     const x = (index / lastIndex) * 160;
     const y = 38 - (Math.min(100, Math.max(0, value)) / 100) * 34;
-    segment.push(`${x},${y}`);
+    segment.push({ index, x, y });
   });
   if (segment.length > 0) segments.push(segment);
 
-  let latest: { x: number; y: number } | null = null;
+  let latest: { index: number; x: number; y: number } | null = null;
   for (let index = values.length - 1; index >= 0; index -= 1) {
     const value = values[index];
     if (value !== null && Number.isFinite(value)) {
       latest = {
+        index,
         x: (index / lastIndex) * 160,
         y: 38 - (Math.min(100, Math.max(0, value)) / 100) * 34,
       };
@@ -104,13 +105,25 @@ function Sparkline({
       <line className="sparkline-grid" x1="0" y1="4" x2="160" y2="4" />
       <line className="sparkline-grid" x1="0" y1="21" x2="160" y2="21" />
       <line className="sparkline-grid" x1="0" y1="38" x2="160" y2="38" />
-      {segments.map((points, index) => (
-        <polyline
-          className="sparkline-line"
-          key={index}
-          points={points.join(" ")}
-        />
-      ))}
+      {segments.map((points, index) =>
+        points.length === 1 ? (
+          points[0].index === latest?.index ? null : (
+            <circle
+              className="sparkline-point"
+              key={index}
+              cx={points[0].x}
+              cy={points[0].y}
+              r="1.8"
+            />
+          )
+        ) : (
+          <polyline
+            className="sparkline-line"
+            key={index}
+            points={points.map(({ x, y }) => `${x},${y}`).join(" ")}
+          />
+        ),
+      )}
       {latest && (
         <circle
           className="sparkline-dot"
