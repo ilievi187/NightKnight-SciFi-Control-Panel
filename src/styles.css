@@ -731,6 +731,60 @@ h2 {
   font-size: 9px;
 }
 
+.thermal-panel {
+  margin-top: 12px;
+}
+
+.thermal-zone-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 220px), 1fr));
+  gap: 10px;
+}
+
+.thermal-zone-card {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  border: 1px solid #252d39;
+  padding: 14px;
+  background: linear-gradient(145deg, rgba(23, 30, 41, 0.72), rgba(14, 19, 27, 0.72));
+}
+
+.thermal-zone-symbol {
+  color: #ffb18d;
+  font-size: 20px;
+  filter: drop-shadow(0 0 6px rgba(255, 177, 141, 0.36));
+}
+
+.thermal-zone-copy {
+  min-width: 0;
+  display: grid;
+  gap: 5px;
+}
+
+.thermal-zone-copy strong {
+  overflow: hidden;
+  color: #a5afbe;
+  font: 9px var(--mono);
+  letter-spacing: 0.06em;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.thermal-zone-copy span {
+  color: #f1f4f8;
+  font: 19px var(--mono);
+  letter-spacing: -0.04em;
+}
+
+.thermal-source-note {
+  margin: 12px 0 0;
+  color: #778393;
+  font-size: 9px;
+  line-height: 1.5;
+}
+
 .unavailable-block {
   padding: 16px 0;
 }

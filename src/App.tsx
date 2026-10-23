@@ -5,6 +5,7 @@ import type {
   Metric,
   NetworkInterfaceMetrics,
   StorageVolumeMetrics,
+  ThermalZoneMetrics,
 } from "./types";
 
 type MetricCardProps<T> = {
@@ -155,6 +156,18 @@ function GpuCard({ gpu }: { gpu: GpuMetrics }) {
         >
           <span style={{ width: `${memoryUsed}%` }} />
         </div>
+      </div>
+    </article>
+  );
+}
+
+function ThermalZoneCard({ zone }: { zone: ThermalZoneMetrics }) {
+  return (
+    <article className="thermal-zone-card">
+      <span className="thermal-zone-symbol" aria-hidden="true">◈</span>
+      <div className="thermal-zone-copy">
+        <strong title={zone.name}>{zone.name}</strong>
+        <span>{zone.temperature_celsius.toFixed(1)} °C</span>
       </div>
     </article>
   );
@@ -687,6 +700,34 @@ function App() {
         )}
         <p className="gpu-source-note">
           Read-only local telemetry uses the NVIDIA driver tool when it is installed.
+        </p>
+      </section>
+
+      <section className="panel thermal-panel" aria-label="Thermal zone telemetry">
+        <div className="panel-heading">
+          <div>
+            <p className="eyebrow">THERMAL MONITORING</p>
+            <h2>System thermal zones</h2>
+          </div>
+          <span className="panel-index">10</span>
+        </div>
+        {metrics?.thermal_zones.status === "available" ? (
+          <div className="thermal-zone-grid">
+            {metrics.thermal_zones.value.map((zone, index) => (
+              <ThermalZoneCard key={`${zone.name}-${index}`} zone={zone} />
+            ))}
+          </div>
+        ) : (
+          <Unavailable
+            reason={
+              metrics?.thermal_zones.status === "unavailable"
+                ? metrics.thermal_zones.reason
+                : "Waiting for host data."
+            }
+          />
+        )}
+        <p className="thermal-source-note">
+          Read-only Linux sensor values. Labels are supplied by the host and may vary by device.
         </p>
       </section>
 

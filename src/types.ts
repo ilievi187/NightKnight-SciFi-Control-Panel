@@ -47,6 +47,11 @@ export interface LoadAverageMetrics {
   fifteen_minutes: number;
 }
 
+export interface ThermalZoneMetrics {
+  name: string;
+  temperature_celsius: number;
+}
+
 export interface IntegrationStatus {
   name: string;
   status: "unavailable";
@@ -59,6 +64,7 @@ export interface HostMetrics {
   operating_system: Metric<string>;
   cpu_usage_percent: Metric<number>;
   load_average: Metric<LoadAverageMetrics>;
+  thermal_zones: Metric<ThermalZoneMetrics[]>;
   memory: Metric<MemoryMetrics>;
   uptime_seconds: Metric<number>;
   root_disk: Metric<DiskMetrics>;

@@ -74,6 +74,12 @@ pub struct LoadAverageMetrics {
 }
 
 #[derive(Serialize)]
+pub struct ThermalZoneMetrics {
+    pub name: String,
+    pub temperature_celsius: f64,
+}
+
+#[derive(Serialize)]
 pub struct IntegrationStatus {
     pub name: String,
     pub status: &'static str,
@@ -87,6 +93,7 @@ pub struct HostMetrics {
     pub operating_system: Metric<String>,
     pub cpu_usage_percent: Metric<f64>,
     pub load_average: Metric<LoadAverageMetrics>,
+    pub thermal_zones: Metric<Vec<ThermalZoneMetrics>>,
     pub memory: Metric<MemoryMetrics>,
     pub uptime_seconds: Metric<f64>,
     pub root_disk: Metric<DiskMetrics>,
@@ -109,6 +116,7 @@ pub async fn collect_host_metrics() -> HostMetrics {
         operating_system: operating_system(),
         cpu_usage_percent,
         load_average: load_average(),
+        thermal_zones: thermal_zones(),
         memory: memory(),
         uptime_seconds: uptime(),
         root_disk: root_disk(),
@@ -203,6 +211,66 @@ fn load_average() -> Metric<LoadAverageMetrics> {
         Some(values) => Metric::available(values),
         None => Metric::unavailable("Linux load averages in /proc/loadavg are unavailable."),
     }
+}
+
+#[cfg(target_os = "linux")]
+fn thermal_zones() -> Metric<Vec<ThermalZoneMetrics>> {
+    let entries = match std::fs::read_dir("/sys/class/thermal") {
+        Ok(entries) => entries,
+        Err(_) => {
+            return Metric::unavailable(
+                "Linux thermal zone data in /sys/class/thermal is unavailable.",
+            )
+        }
+    };
+
+    let mut zones = Vec::new();
+    for entry in entries.flatten() {
+        let name = entry.file_name().to_string_lossy().into_owned();
+        // /sys/class entries are commonly symlinks to their device directories.
+        if !name.starts_with("thermal_zone") || !entry.path().is_dir() {
+            continue;
+        }
+
+        let directory = entry.path();
+        let label = std::fs::read_to_string(directory.join("type"))
+            .ok()
+            .map(|value| value.trim().to_string())
+            .filter(|value| !value.is_empty())
+            .unwrap_or(name);
+        let temperature_celsius = std::fs::read_to_string(directory.join("temp"))
+            .ok()
+            .and_then(|value| parse_thermal_millidegrees(&value));
+
+        if let Some(temperature_celsius) = temperature_celsius {
+            zones.push(ThermalZoneMetrics {
+                name: label,
+                temperature_celsius,
+            });
+        }
+    }
+
+    zones.sort_by(|left, right| left.name.cmp(&right.name));
+    if zones.is_empty() {
+        return Metric::unavailable(
+            "No readable Linux thermal zones are exposed by /sys/class/thermal.",
+        );
+    }
+    Metric::available(zones)
+}
+
+#[cfg(not(target_os = "linux"))]
+fn thermal_zones() -> Metric<Vec<ThermalZoneMetrics>> {
+    Metric::unavailable("Thermal zone collection is only implemented for Linux.")
+}
+
+#[cfg(target_os = "linux")]
+fn parse_thermal_millidegrees(contents: &str) -> Option<f64> {
+    let millidegrees = contents.trim().parse::<i64>().ok()?;
+    if !(-273_150..=1_000_000).contains(&millidegrees) {
+        return None;
+    }
+    Some(millidegrees as f64 / 1_000.0)
 }
 
 #[cfg(not(target_os = "linux"))]
@@ -682,6 +750,17 @@ mod tests {
         assert!(parse_load_average("0.42 bad 2.75").is_none());
         assert!(parse_load_average("0.42 -1 2.75").is_none());
         assert!(parse_load_average("NaN 1 2").is_none());
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn parses_linux_thermal_zone_millidegrees() {
+        assert_eq!(parse_thermal_millidegrees("42500\n"), Some(42.5));
+        assert_eq!(parse_thermal_millidegrees("-12500"), Some(-12.5));
+        assert_eq!(parse_thermal_millidegrees(""), None);
+        assert_eq!(parse_thermal_millidegrees("not-a-temperature"), None);
+        assert_eq!(parse_thermal_millidegrees("-273151"), None);
+        assert_eq!(parse_thermal_millidegrees("1000001"), None);
     }
 
     #[cfg(target_os = "linux")]
