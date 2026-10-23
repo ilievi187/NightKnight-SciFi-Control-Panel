@@ -29,9 +29,11 @@ The API binds to loopback only. It exposes:
 - GET /api/health for a process health check
 - GET /api/metrics for current host metrics and integration availability
 
-On Linux, the API reads the hostname and OS release files, CPU and memory counters in /proc, root filesystem capacity through statvfs, and interface counters in /proc/net/dev. Container runtime, GPU, remote probe, and cloud API integrations are marked unavailable until a local source or endpoint is configured.
+On Linux, the API reads the hostname and OS release files, CPU and memory counters in /proc, root filesystem capacity through statvfs, and interface counters in /proc/net/dev. Remote probe and cloud API integrations are marked unavailable until a local source or endpoint is configured.
 
 The `/api/metrics` response also includes `storage_volumes`, which reports capacity for mounted filesystems that expose usable space. Virtual filesystems such as procfs, sysfs, and tmpfs are omitted. The command center refreshes these readings with the rest of host telemetry and shows each mount point, filesystem type, device, and used capacity.
+
+When the NVIDIA driver tool `nvidia-smi` is available, `/api/metrics` also reports GPU utilization, video memory use, and temperature for each NVIDIA GPU. The API runs a fixed read-only query with a two-second timeout. Missing tools, unsupported devices, or incomplete readings are reported as unavailable; the application does not send GPU commands or control the device.
 
 ## Checks
 

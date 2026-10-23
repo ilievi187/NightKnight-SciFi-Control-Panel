@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type {
+  GpuMetrics,
   HostMetrics,
   Metric,
   NetworkInterfaceMetrics,
@@ -100,6 +101,60 @@ function StorageVolumeCard({ volume }: { volume: StorageVolumeMetrics }) {
         <span>
           {formatBytes(volume.used_bytes)} / {formatBytes(volume.total_bytes)}
         </span>
+      </div>
+    </article>
+  );
+}
+
+function GpuCard({ gpu }: { gpu: GpuMetrics }) {
+  const utilization = Math.min(100, Math.max(0, gpu.utilization_percent));
+  const memoryUsed =
+    gpu.memory_total_bytes > 0
+      ? Math.min(
+          100,
+          Math.max(0, (gpu.memory_used_bytes / gpu.memory_total_bytes) * 100),
+        )
+      : 0;
+
+  return (
+    <article className="gpu-card">
+      <div className="gpu-card-heading">
+        <strong title={gpu.name}>{gpu.name}</strong>
+        <span>{gpu.temperature_celsius}°C</span>
+      </div>
+      <div className="gpu-meter-block">
+        <div className="gpu-meter-label">
+          <span>CORE UTILIZATION</span>
+          <strong>{utilization}%</strong>
+        </div>
+        <div
+          className="gpu-meter"
+          role="meter"
+          aria-label={`${gpu.name} core utilization`}
+          aria-valuemin={0}
+          aria-valuemax={100}
+          aria-valuenow={utilization}
+        >
+          <span style={{ width: `${utilization}%` }} />
+        </div>
+      </div>
+      <div className="gpu-memory-block">
+        <div className="gpu-meter-label">
+          <span>VIDEO MEMORY</span>
+          <strong>
+            {formatBytes(gpu.memory_used_bytes)} / {formatBytes(gpu.memory_total_bytes)}
+          </strong>
+        </div>
+        <div
+          className="gpu-meter gpu-memory-meter"
+          role="meter"
+          aria-label={`${gpu.name} video memory used`}
+          aria-valuemin={0}
+          aria-valuemax={100}
+          aria-valuenow={memoryUsed}
+        >
+          <span style={{ width: `${memoryUsed}%` }} />
+        </div>
       </div>
     </article>
   );
@@ -590,6 +645,38 @@ function App() {
             }
           />
         )}
+      </section>
+
+      <section className="panel gpu-panel" aria-label="GPU telemetry">
+        <div className="panel-heading">
+          <div>
+            <p className="eyebrow">LOCAL ACCELERATOR STATUS</p>
+            <h2>GPU telemetry</h2>
+          </div>
+          <span className="panel-index">08</span>
+        </div>
+        {metrics?.gpu_metrics.status === "available" ? (
+          metrics.gpu_metrics.value.length > 0 ? (
+            <div className="gpu-grid">
+              {metrics.gpu_metrics.value.map((gpu, index) => (
+                <GpuCard key={`${gpu.name}-${index}`} gpu={gpu} />
+              ))}
+            </div>
+          ) : (
+            <p className="empty-copy">No NVIDIA GPUs were reported.</p>
+          )
+        ) : (
+          <Unavailable
+            reason={
+              metrics?.gpu_metrics.status === "unavailable"
+                ? metrics.gpu_metrics.reason
+                : "Waiting for host data."
+            }
+          />
+        )}
+        <p className="gpu-source-note">
+          Read-only local telemetry uses the NVIDIA driver tool when it is installed.
+        </p>
       </section>
 
       <footer className="footer">

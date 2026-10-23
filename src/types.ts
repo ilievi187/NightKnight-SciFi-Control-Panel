@@ -33,6 +33,14 @@ export interface NetworkInterfaceMetrics {
   transmitted_bytes: number;
 }
 
+export interface GpuMetrics {
+  name: string;
+  utilization_percent: number;
+  memory_total_bytes: number;
+  memory_used_bytes: number;
+  temperature_celsius: number;
+}
+
 export interface IntegrationStatus {
   name: string;
   status: "unavailable";
@@ -49,5 +57,6 @@ export interface HostMetrics {
   root_disk: Metric<DiskMetrics>;
   storage_volumes: Metric<StorageVolumeMetrics[]>;
   network_interfaces: Metric<NetworkInterfaceMetrics[]>;
+  gpu_metrics: Metric<GpuMetrics[]>;
   integrations: IntegrationStatus[];
 }
