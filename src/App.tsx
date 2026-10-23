@@ -5,6 +5,8 @@ import type {
   HostMetrics,
   Metric,
   NetworkInterfaceMetrics,
+  PressureAverages,
+  ResourcePressureMetrics,
   StorageVolumeMetrics,
   ThermalZoneMetrics,
 } from "./types";
@@ -216,6 +218,56 @@ function CpuCoreMeter({ core }: { core: CpuCoreMetrics }) {
         <span style={{ width: `${utilization}%` }} />
       </div>
     </div>
+  );
+}
+
+function PressureReading({
+  label,
+  averages,
+}: {
+  label: string;
+  averages: PressureAverages;
+}) {
+  const avg10 = Math.min(100, Math.max(0, averages.avg10_percent));
+
+  return (
+    <div className="pressure-reading">
+      <div className="pressure-reading-heading">
+        <strong>{label}</strong>
+        <span>{avg10.toFixed(2)}%</span>
+      </div>
+      <div
+        className="gpu-meter pressure-meter"
+        role="meter"
+        aria-label={`${label} pressure over the last 10 seconds`}
+        aria-valuemin={0}
+        aria-valuemax={100}
+        aria-valuenow={avg10}
+      >
+        <span style={{ width: `${avg10}%` }} />
+      </div>
+      <p className="pressure-windows">
+        10s {averages.avg10_percent.toFixed(2)}% · 60s {averages.avg60_percent.toFixed(2)}% · 300s {averages.avg300_percent.toFixed(2)}%
+      </p>
+    </div>
+  );
+}
+
+function ResourcePressureCard({
+  label,
+  pressure,
+}: {
+  label: string;
+  pressure: ResourcePressureMetrics;
+}) {
+  return (
+    <article className="pressure-card">
+      <h3>{label}</h3>
+      <PressureReading label={`${label} some`} averages={pressure.some} />
+      {pressure.full && (
+        <PressureReading label={`${label} full`} averages={pressure.full} />
+      )}
+    </article>
   );
 }
 
@@ -673,6 +725,34 @@ function App() {
         </p>
       </section>
 
+      <section className="panel pressure-panel" aria-label="System pressure stall information">
+        <div className="panel-heading">
+          <div>
+            <p className="eyebrow">RESOURCE CONTENTION</p>
+            <h2>System pressure</h2>
+          </div>
+          <span className="panel-index">08</span>
+        </div>
+        {metrics?.system_pressure.status === "available" ? (
+          <div className="pressure-grid">
+            <ResourcePressureCard label="CPU" pressure={metrics.system_pressure.value.cpu} />
+            <ResourcePressureCard label="MEMORY" pressure={metrics.system_pressure.value.memory} />
+            <ResourcePressureCard label="I/O" pressure={metrics.system_pressure.value.io} />
+          </div>
+        ) : (
+          <Unavailable
+            reason={
+              metrics?.system_pressure.status === "unavailable"
+                ? metrics.system_pressure.reason
+                : "Waiting for host data."
+            }
+          />
+        )}
+        <p className="pressure-source-note">
+          Rolling stall-time percentages over 10, 60, and 300 seconds. System-wide CPU full pressure is not defined.
+        </p>
+      </section>
+
       <section className="lower-grid">
         <article className="panel network-panel">
           <div className="panel-heading">
@@ -680,7 +760,7 @@ function App() {
               <p className="eyebrow">LIVE THROUGHPUT</p>
               <h2>Network interfaces</h2>
             </div>
-            <span className="panel-index">08</span>
+            <span className="panel-index">09</span>
           </div>
           {metrics?.network_interfaces.status === "available" ? (
             metrics.network_interfaces.value.length > 0 ? (
@@ -736,7 +816,7 @@ function App() {
               <p className="eyebrow">OPTIONAL SOURCES</p>
               <h2>Integrations</h2>
             </div>
-            <span className="panel-index">09</span>
+            <span className="panel-index">10</span>
           </div>
           {metrics ? (
             <div className="integration-list">
@@ -763,7 +843,7 @@ function App() {
             <p className="eyebrow">LOCAL CAPACITY</p>
             <h2>Mounted volumes</h2>
           </div>
-          <span className="panel-index">10</span>
+          <span className="panel-index">11</span>
         </div>
         {metrics?.storage_volumes.status === "available" ? (
           metrics.storage_volumes.value.length > 0 ? (
@@ -792,7 +872,7 @@ function App() {
             <p className="eyebrow">LOCAL ACCELERATOR STATUS</p>
             <h2>GPU telemetry</h2>
           </div>
-          <span className="panel-index">11</span>
+          <span className="panel-index">12</span>
         </div>
         {metrics?.gpu_metrics.status === "available" ? (
           metrics.gpu_metrics.value.length > 0 ? (
@@ -824,7 +904,7 @@ function App() {
             <p className="eyebrow">THERMAL MONITORING</p>
             <h2>System thermal zones</h2>
           </div>
-          <span className="panel-index">12</span>
+          <span className="panel-index">13</span>
         </div>
         {metrics?.thermal_zones.status === "available" ? (
           <div className="thermal-zone-grid">

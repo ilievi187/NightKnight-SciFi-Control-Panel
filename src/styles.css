@@ -553,6 +553,73 @@ h2 {
   font-size: 9px;
 }
 
+.pressure-panel {
+  min-height: 0;
+  margin-top: 12px;
+}
+
+.pressure-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 230px), 1fr));
+  gap: 10px;
+}
+
+.pressure-card {
+  min-width: 0;
+  border: 1px solid #252d39;
+  padding: 13px;
+  background: linear-gradient(145deg, rgba(23, 30, 41, 0.72), rgba(14, 19, 27, 0.72));
+}
+
+.pressure-card h3 {
+  margin: 0 0 16px;
+  color: #e3e9f1;
+  font: 9px var(--mono);
+  letter-spacing: 0.08em;
+}
+
+.pressure-reading + .pressure-reading {
+  margin-top: 15px;
+  padding-top: 12px;
+  border-top: 1px solid #252d39;
+}
+
+.pressure-reading-heading {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 8px;
+  color: #a5afbe;
+  font: 8px var(--mono);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.pressure-reading-heading span {
+  color: #e3e9f1;
+  font-size: 9px;
+  letter-spacing: 0;
+}
+
+.pressure-meter span {
+  background: linear-gradient(90deg, #bb76e6, #f19cce);
+  box-shadow: 0 0 10px rgba(187, 118, 230, 0.24);
+}
+
+.pressure-windows {
+  margin: 7px 0 0;
+  color: #8792a1;
+  font: 8px var(--mono);
+  line-height: 1.5;
+}
+
+.pressure-source-note {
+  margin: 12px 0 0;
+  color: #778393;
+  font-size: 9px;
+}
+
 .panel {
   min-height: 264px;
   border: 1px solid var(--line);
