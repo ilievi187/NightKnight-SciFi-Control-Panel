@@ -520,6 +520,17 @@ function App() {
                   : undefined
               }
             />
+            <MetricCard
+              index="05"
+              label="System load average"
+              metric={metrics.load_average}
+              format={(value) =>
+                [value.one_minute, value.five_minutes, value.fifteen_minutes]
+                  .map((average) => average.toFixed(2))
+                  .join(" / ")
+              }
+              detail={() => "1m / 5m / 15m · not CPU-normalized"}
+            />
           </>
         ) : (
           <div className="empty-metrics">
@@ -541,7 +552,7 @@ function App() {
               <p className="eyebrow">LIVE THROUGHPUT</p>
               <h2>Network interfaces</h2>
             </div>
-            <span className="panel-index">05</span>
+            <span className="panel-index">06</span>
           </div>
           {metrics?.network_interfaces.status === "available" ? (
             metrics.network_interfaces.value.length > 0 ? (
@@ -597,7 +608,7 @@ function App() {
               <p className="eyebrow">OPTIONAL SOURCES</p>
               <h2>Integrations</h2>
             </div>
-            <span className="panel-index">06</span>
+            <span className="panel-index">07</span>
           </div>
           {metrics ? (
             <div className="integration-list">
@@ -624,7 +635,7 @@ function App() {
             <p className="eyebrow">LOCAL CAPACITY</p>
             <h2>Mounted volumes</h2>
           </div>
-          <span className="panel-index">07</span>
+          <span className="panel-index">08</span>
         </div>
         {metrics?.storage_volumes.status === "available" ? (
           metrics.storage_volumes.value.length > 0 ? (
@@ -653,7 +664,7 @@ function App() {
             <p className="eyebrow">LOCAL ACCELERATOR STATUS</p>
             <h2>GPU telemetry</h2>
           </div>
-          <span className="panel-index">08</span>
+          <span className="panel-index">09</span>
         </div>
         {metrics?.gpu_metrics.status === "available" ? (
           metrics.gpu_metrics.value.length > 0 ? (

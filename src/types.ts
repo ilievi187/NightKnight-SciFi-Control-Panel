@@ -41,6 +41,12 @@ export interface GpuMetrics {
   temperature_celsius: number;
 }
 
+export interface LoadAverageMetrics {
+  one_minute: number;
+  five_minutes: number;
+  fifteen_minutes: number;
+}
+
 export interface IntegrationStatus {
   name: string;
   status: "unavailable";
@@ -52,6 +58,7 @@ export interface HostMetrics {
   hostname: Metric<string>;
   operating_system: Metric<string>;
   cpu_usage_percent: Metric<number>;
+  load_average: Metric<LoadAverageMetrics>;
   memory: Metric<MemoryMetrics>;
   uptime_seconds: Metric<number>;
   root_disk: Metric<DiskMetrics>;
