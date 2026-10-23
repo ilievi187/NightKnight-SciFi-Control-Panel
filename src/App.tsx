@@ -1166,11 +1166,51 @@ function App() {
         )}
       </section>
 
+      <section className="panel ai-agent-panel" aria-label="AI agent control center">
+        <div className="panel-heading">
+          <div>
+            <p className="eyebrow">AI AGENT CONTROL</p>
+            <h2>Agent status</h2>
+          </div>
+          <span className="panel-index">15</span>
+        </div>
+        <div className="ai-agent-grid">
+          {[
+            { name: "OpenCode", provider: "OpenCode" },
+            { name: "Hermes Agent", provider: "Hermes" },
+            { name: "Paperclip", provider: "Paperclip" },
+          ].map((agent) => (
+            <AiAgentCard key={agent.name} agent={agent} />
+          ))}
+        </div>
+        <p className="ai-agent-note">
+          Read-only agent monitoring. Agents are unavailable until a local
+          adapter or endpoint is configured. No commands are sent.
+        </p>
+      </section>
       <footer className="footer">
         <span>NIGHTKNIGHT / LOCAL OBSERVABILITY</span>
         <span>DATA STAYS ON THIS HOST</span>
       </footer>
     </main>
+  );
+}
+
+function AiAgentCard({ agent }: { agent: { name: string; provider: string } }) {
+  return (
+    <article className="ai-agent-card">
+      <div className="ai-agent-heading">
+        <strong>{agent.name}</strong>
+        <span className="unavailable-badge">UNAVAILABLE</span>
+      </div>
+      <p className="ai-agent-provider">{agent.provider}</p>
+      <div className="ai-agent-details">
+        <span>STATUS: unavailable</span>
+        <span>TASK: not configured</span>
+        <span>MODEL: not configured</span>
+        <span>HEARTBEAT: not configured</span>
+      </div>
+    </article>
   );
 }
 
