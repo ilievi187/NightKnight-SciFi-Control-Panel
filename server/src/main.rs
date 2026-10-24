@@ -1,3 +1,4 @@
+mod agents;
 mod hosts;
 mod metrics;
 
@@ -31,6 +32,10 @@ async fn host_metrics() -> Json<metrics::HostMetrics> {
 
 async fn hosts(State(_state): State<AppState>) -> Json<Vec<hosts::HostEntry>> {
     Json(hosts::list_hosts().await)
+}
+
+async fn agents() -> Json<Vec<agents::AgentInfo>> {
+    Json(agents::list_agents().await)
 }
 
 /// Auth middleware: if NIGHTKNIGHT_API_TOKEN is set, require Bearer token.
@@ -78,6 +83,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .route("/api/health", get(health))
         .route("/api/metrics", get(host_metrics))
         .route("/api/hosts", get(hosts))
+        .route("/api/agents", get(agents))
         .with_state(state.clone())
         .layer(middleware::from_fn_with_state(state, auth_middleware));
 

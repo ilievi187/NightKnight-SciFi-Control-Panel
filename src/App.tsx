@@ -451,6 +451,7 @@ function formatDuration(seconds: number): string {
 
 function App() {
   const [metrics, setMetrics] = useState<HostMetrics | null>(null);
+  const [agents, setAgents] = useState<{ id: string; name: string; provider: string; status: string; model: string | null; current_task: string | null; last_heartbeat_unix: number | null; token_usage: number | null; context_usage: number | null; recent_errors: string[]; data_source: string }[]>([]);
   const [hosts, setHosts] = useState<HostEntry[]>([]);
   const [apiState, setApiState] = useState<"connecting" | "online" | "offline">(
     "connecting",
@@ -584,6 +585,20 @@ function App() {
     const timer = window.setInterval(() => void refresh(), 5_000);
     return () => window.clearInterval(timer);
   }, [refresh]);
+
+  useEffect(() => {
+    fetch("/api/agents")
+      .then((r) => r.json())
+      .then((data) => setAgents(data))
+      .catch(() => {});
+    const timer = window.setInterval(() => {
+      fetch("/api/agents")
+        .then((r) => r.json())
+        .then((data) => setAgents(data))
+        .catch(() => {});
+    }, 10_000);
+    return () => window.clearInterval(timer);
+  }, []);
 
   useEffect(() => {
     fetch("/api/hosts")
@@ -1240,13 +1255,13 @@ function App() {
           <span className="panel-index">15</span>
         </div>
         <div className="ai-agent-grid">
-          {[
-            { name: "OpenCode", provider: "OpenCode" },
-            { name: "Hermes Agent", provider: "Hermes" },
-            { name: "Paperclip", provider: "Paperclip" },
-          ].map((agent) => (
-            <AiAgentCard key={agent.name} agent={agent} />
-          ))}
+          {agents.length > 0 ? (
+            agents.map((agent) => (
+              <AiAgentCard key={agent.id} agent={agent} />
+            ))
+          ) : (
+            <p className="empty-copy">No agents configured. Set OPENCODE_ENDPOINT to enable.</p>
+          )}
         </div>
         <p className="ai-agent-note">
           Read-only agent monitoring. Agents are unavailable until a local
@@ -1261,19 +1276,24 @@ function App() {
   );
 }
 
-function AiAgentCard({ agent }: { agent: { name: string; provider: string } }) {
+function AiAgentCard({ agent }: { agent: { id: string; name: string; provider: string; status: string; model: string | null; current_task: string | null; last_heartbeat_unix: number | null; token_usage: number | null; context_usage: number | null; recent_errors: string[]; data_source: string } }) {
   return (
     <article className="ai-agent-card">
       <div className="ai-agent-heading">
         <strong>{agent.name}</strong>
-        <span className="unavailable-badge">UNAVAILABLE</span>
+        <span className={`unavailable-badge integration-badge ${agent.status}`}>
+          {agent.status.toUpperCase()}
+        </span>
       </div>
       <p className="ai-agent-provider">{agent.provider}</p>
       <div className="ai-agent-details">
-        <span>STATUS: unavailable</span>
-        <span>TASK: not configured</span>
-        <span>MODEL: not configured</span>
-        <span>HEARTBEAT: not configured</span>
+        <span>MODEL: {agent.model || "N/A"}</span>
+        <span>TASK: {agent.current_task || "N/A"}</span>
+        <span>TOKENS: {agent.token_usage !== null ? agent.token_usage.toLocaleString() : "N/A"}</span>
+        <span>SOURCE: {agent.data_source}</span>
+        {agent.recent_errors.length > 0 && (
+          <span className="ai-agent-error">ERROR: {agent.recent_errors[0]}</span>
+        )}
       </div>
     </article>
   );
