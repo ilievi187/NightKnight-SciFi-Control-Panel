@@ -127,7 +127,7 @@ pub async fn probe_host(config: &HostConfig) -> HostEntry {
         .unwrap_or(0);
 
     if config.is_local {
-        return collect_local_host_entry(config, now);
+        return collect_local_host_entry(config, now).await;
     }
 
     // Remote host - probe via HTTP
@@ -289,7 +289,7 @@ pub async fn probe_host(config: &HostConfig) -> HostEntry {
     }
 }
 
-fn collect_local_host_entry(config: &HostConfig, now: u64) -> HostEntry {
+async fn collect_local_host_entry(config: &HostConfig, now: u64) -> HostEntry {
     let hostname = std::fs::read_to_string("/etc/hostname")
         .map(|s| s.trim().to_string())
         .unwrap_or_else(|_| "unknown".to_string());
@@ -303,53 +303,32 @@ fn collect_local_host_entry(config: &HostConfig, now: u64) -> HostEntry {
         })
         .unwrap_or_else(|| "Unknown".to_string());
 
-    // Try to read local metrics for CPU, RAM, GPU
-    let (cpu, memory, gpu_name, gpu_util, gpu_temp, vram_used, vram_total) =
-        match std::fs::read_to_string("/proc/stat") {
-            Ok(_) => {
-                // Read memory
-                let (mem_total, mem_available) = std::fs::read_to_string("/proc/meminfo")
-                    .ok()
-                    .and_then(|contents| {
-                        let mut total = None;
-                        let mut available = None;
-                        for line in contents.lines() {
-                            if let Some((key, value)) = line.split_once(':') {
-                                if let Ok(kib) = value.split_whitespace().next()?.parse::<u64>() {
-                                    match key {
-                                        "MemTotal" => total = Some(kib),
-                                        "MemAvailable" => available = Some(kib),
-                                        _ => {}
-                                    }
-                                }
-                            }
-                        }
-                        Some((total?, available?))
-                    })
-                    .unwrap_or((0, 0));
+    // Collect real local metrics
+    let metrics = crate::metrics::collect_host_metrics().await;
 
-                let mem_percent = if mem_total > 0 {
-                    Some((mem_total - mem_available) as f64 * 100.0 / mem_total as f64)
-                } else {
-                    None
-                };
+    let cpu_percent = match &metrics.cpu_usage_percent {
+        crate::metrics::Metric::Available { value } => Some(*value),
+        _ => None,
+    };
 
-                // GPU info from sysfs (simplified - just check if any AMD GPU exists)
-                let (gpu_name, gpu_util, gpu_temp, vram_used, vram_total) =
-                    collect_local_amd_gpu_info();
+    let memory_percent = match &metrics.memory {
+        crate::metrics::Metric::Available { value } => Some(value.used_percent),
+        _ => None,
+    };
 
-                (
-                    None,
-                    mem_percent,
-                    gpu_name,
-                    gpu_util,
-                    gpu_temp,
-                    vram_used,
-                    vram_total,
-                )
-            }
-            _ => (None, None, None, None, None, None, None),
-        };
+    let (gpu_name, gpu_util, gpu_temp, vram_used, vram_total) = match &metrics.gpu_metrics {
+        crate::metrics::Metric::Available { value } if !value.is_empty() => {
+            let g = &value[0];
+            (
+                Some(g.name.clone()),
+                g.utilization_percent,
+                g.temperature_celsius.map(|t| t as f64),
+                Some(g.memory_used_bytes),
+                Some(g.memory_total_bytes),
+            )
+        }
+        _ => (None, None, None, None, None),
+    };
 
     HostEntry {
         id: config.id.clone(),
@@ -359,8 +338,8 @@ fn collect_local_host_entry(config: &HostConfig, now: u64) -> HostEntry {
         telemetry_source: "local".to_string(),
         is_local: true,
         last_heartbeat_unix: Some(now),
-        cpu_percent: cpu,
-        memory_percent: memory,
+        cpu_percent,
+        memory_percent,
         gpu_name,
         gpu_utilization: gpu_util,
         gpu_temperature: gpu_temp,
@@ -368,64 +347,6 @@ fn collect_local_host_entry(config: &HostConfig, now: u64) -> HostEntry {
         vram_total_bytes: vram_total,
         error: None,
     }
-}
-
-type LocalGpuInfo = (
-    Option<String>,
-    Option<u8>,
-    Option<f64>,
-    Option<u64>,
-    Option<u64>,
-);
-
-fn collect_local_amd_gpu_info() -> LocalGpuInfo {
-    // Try to find an AMD GPU
-    if let Ok(entries) = std::fs::read_dir("/sys/class/drm") {
-        for entry in entries.flatten() {
-            let name = entry.file_name().to_string_lossy().to_string();
-            if !name.starts_with("card") || name.contains('-') {
-                continue;
-            }
-            let device_path = entry.path().join("device");
-            let driver = std::fs::read_link(device_path.join("driver"))
-                .ok()
-                .and_then(|p| p.file_name().map(|n| n.to_string_lossy().to_string()));
-            if driver.as_deref() != Some("amdgpu") {
-                continue;
-            }
-
-            let vram_total = std::fs::read_to_string(device_path.join("mem_info_vram_total"))
-                .ok()
-                .and_then(|s| s.trim().parse::<u64>().ok());
-            let vram_used = std::fs::read_to_string(device_path.join("mem_info_vram_used"))
-                .ok()
-                .and_then(|s| s.trim().parse::<u64>().ok());
-            let utilization = std::fs::read_to_string(device_path.join("gpu_busy_percent"))
-                .ok()
-                .and_then(|s| s.trim().parse::<f64>().ok())
-                .map(|v| v as u8);
-            let temperature =
-                std::fs::read_dir(device_path.join("hwmon"))
-                    .ok()
-                    .and_then(|mut entries| {
-                        entries.find_map(|e| {
-                            let e = e.ok()?;
-                            let temp_str =
-                                std::fs::read_to_string(e.path().join("temp1_input")).ok()?;
-                            let millidegrees: i64 = temp_str.trim().parse().ok()?;
-                            Some(millidegrees as f64 / 1000.0)
-                        })
-                    });
-
-            let gpu_name = std::fs::read_to_string(device_path.join("product_name"))
-                .map(|s| s.trim().to_string())
-                .ok()
-                .filter(|s| !s.is_empty());
-
-            return (gpu_name, utilization, temperature, vram_used, vram_total);
-        }
-    }
-    (None, None, None, None, None)
 }
 
 /// List all configured hosts with their status.
@@ -437,8 +358,6 @@ pub async fn list_hosts() -> Vec<HostEntry> {
     }
     hosts
 }
-
-// --- Tests ---
 
 #[cfg(test)]
 mod tests {
