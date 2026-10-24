@@ -27,6 +27,7 @@ pub struct AgentInfo {
     pub observed_at_unix: u64,
     pub token_usage: Option<u64>,
     pub context_usage: Option<f64>,
+    pub tokens_per_second: Option<f64>,
     pub cost_usd: Option<f64>,
     pub recent_errors: Vec<String>,
     pub data_source: String,
@@ -218,6 +219,7 @@ pub async fn fetch_opencode_agents(config: &OpenCodeConfig) -> Vec<AgentInfo> {
             token_usage: None,
             context_usage: None,
             cost_usd: None,
+            tokens_per_second: None,
             recent_errors: vec![],
             data_source: "opencode-api".to_string(),
             last_refresh_unix: now,
@@ -243,6 +245,22 @@ pub async fn fetch_opencode_agents(config: &OpenCodeConfig) -> Vec<AgentInfo> {
                         .unwrap_or(0)
             });
 
+            // Calculate average tokens per second from session duration
+            let tps = if let (Some(tokens), Some(time)) = (total_tokens, &session.time) {
+                if let (Some(created), Some(updated)) = (time.created, time.updated) {
+                    let duration_ms = updated.saturating_sub(created);
+                    if duration_ms > 0 {
+                        Some(tokens as f64 * 1000.0 / duration_ms as f64)
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                }
+            } else {
+                None
+            };
+
             let status = determine_opencode_status(&session);
             let current_task = session.title.clone();
 
@@ -261,6 +279,7 @@ pub async fn fetch_opencode_agents(config: &OpenCodeConfig) -> Vec<AgentInfo> {
                 observed_at_unix: now,
                 token_usage: total_tokens,
                 context_usage: None,
+                tokens_per_second: tps,
                 cost_usd: session.cost,
                 recent_errors: vec![],
                 data_source: "opencode-api".to_string(),
@@ -438,6 +457,7 @@ pub async fn fetch_hermes_agents(config: &HermesConfig) -> Vec<AgentInfo> {
             token_usage: None,
             context_usage: None,
             cost_usd: None,
+            tokens_per_second: None,
             recent_errors: vec![],
             data_source: "hermes-api".to_string(),
             last_refresh_unix: now,
@@ -452,6 +472,20 @@ pub async fn fetch_hermes_agents(config: &HermesConfig) -> Vec<AgentInfo> {
             let status = determine_hermes_status(&session);
             let tokens = hermes_token_usage(&session);
             let cost = session.actual_cost_usd.or(session.estimated_cost_usd);
+
+            // Calculate average tokens per second from session duration
+            let tps = if let (Some(t), Some(started), Some(last)) =
+                (tokens, session.started_at, session.last_active)
+            {
+                let duration = last - started;
+                if duration > 0.0 {
+                    Some(t as f64 / duration)
+                } else {
+                    None
+                }
+            } else {
+                None
+            };
 
             Some(AgentInfo {
                 id: session.id.clone(),
@@ -468,6 +502,7 @@ pub async fn fetch_hermes_agents(config: &HermesConfig) -> Vec<AgentInfo> {
                 observed_at_unix: now,
                 token_usage: tokens,
                 context_usage: None,
+                tokens_per_second: tps,
                 cost_usd: cost,
                 recent_errors: vec![],
                 data_source: "hermes-api".to_string(),
@@ -605,6 +640,7 @@ pub async fn fetch_paperclip_agents(config: &PaperclipConfig) -> Vec<AgentInfo> 
             token_usage: None,
             context_usage: None,
             cost_usd: None,
+            tokens_per_second: None,
             recent_errors: vec![],
             data_source: "paperclip-api".to_string(),
             last_refresh_unix: now,
@@ -633,6 +669,7 @@ pub async fn fetch_paperclip_agents(config: &PaperclipConfig) -> Vec<AgentInfo> 
                 token_usage: agent.token_usage,
                 context_usage: agent.context_usage,
                 cost_usd: None,
+                tokens_per_second: None,
                 recent_errors: vec![],
                 data_source: "paperclip-api".to_string(),
                 last_refresh_unix: now,
@@ -659,6 +696,7 @@ fn error_agent(provider: &str, name: &str, error: &str, now: u64) -> AgentInfo {
         token_usage: None,
         context_usage: None,
         cost_usd: None,
+        tokens_per_second: None,
         recent_errors: vec![error.to_string()],
         data_source: format!("{}-api", provider),
         last_refresh_unix: now,
@@ -690,6 +728,7 @@ pub async fn list_agents() -> Vec<AgentInfo> {
             token_usage: None,
             context_usage: None,
             cost_usd: None,
+            tokens_per_second: None,
             recent_errors: vec!["Not configured (set OPENCODE_ENDPOINT)".to_string()],
             data_source: "none".to_string(),
             last_refresh_unix: now,
@@ -717,6 +756,7 @@ pub async fn list_agents() -> Vec<AgentInfo> {
             token_usage: None,
             context_usage: None,
             cost_usd: None,
+            tokens_per_second: None,
             recent_errors: vec!["Not configured (set PAPERCLIP_ENDPOINT)".to_string()],
             data_source: "none".to_string(),
             last_refresh_unix: now,
@@ -744,6 +784,7 @@ pub async fn list_agents() -> Vec<AgentInfo> {
             token_usage: None,
             context_usage: None,
             cost_usd: None,
+            tokens_per_second: None,
             recent_errors: vec![
                 "Not configured (set HERMES_ENDPOINT and HERMES_API_KEY)".to_string()
             ],
@@ -1046,6 +1087,7 @@ mod tests {
             token_usage: Some(6000000),
             context_usage: None,
             cost_usd: Some(3.13),
+            tokens_per_second: Some(1000.0),
             recent_errors: vec![],
             data_source: "opencode-api".to_string(),
             last_refresh_unix: 1792846204,
