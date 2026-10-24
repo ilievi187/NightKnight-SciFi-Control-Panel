@@ -33,17 +33,10 @@ pub struct AgentInfo {
     pub last_refresh_unix: u64,
 }
 
-/// OpenCode session time information.
-#[derive(serde::Deserialize, Debug)]
-#[allow(dead_code)]
-struct OpenCodeTime {
-    created: Option<u64>,
-    updated: Option<u64>,
-    idle: Option<u64>,
-    viewed: Option<u64>,
-}
+// ============================================================
+// OpenCode Adapter
+// ============================================================
 
-/// OpenCode session response (subset of API response).
 #[derive(serde::Deserialize, Debug)]
 #[allow(dead_code)]
 struct OpenCodeSession {
@@ -80,7 +73,15 @@ struct OpenCodeCache {
     write: Option<u64>,
 }
 
-/// OpenCode adapter configuration.
+#[derive(serde::Deserialize, Debug)]
+#[allow(dead_code)]
+struct OpenCodeTime {
+    created: Option<u64>,
+    updated: Option<u64>,
+    idle: Option<u64>,
+    viewed: Option<u64>,
+}
+
 #[derive(Clone, Debug)]
 pub struct OpenCodeConfig {
     pub endpoint: String,
@@ -103,10 +104,7 @@ impl OpenCodeConfig {
     }
 }
 
-/// Determine session status from OpenCode session data.
-/// Uses outcome and time fields, NOT just presence of agent field.
-fn determine_status(session: &OpenCodeSession) -> AgentStatus {
-    // Check outcome first
+fn determine_opencode_status(session: &OpenCodeSession) -> AgentStatus {
     if let Some(outcome) = &session.outcome {
         match outcome.as_str() {
             "succeeded" => return AgentStatus::Idle,
@@ -115,14 +113,12 @@ fn determine_status(session: &OpenCodeSession) -> AgentStatus {
         }
     }
 
-    // Check time fields for activity
     if let Some(time) = &session.time {
         let now_ms = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .map(|d| d.as_millis() as u64)
             .unwrap_or(0);
 
-        // If updated recently (within 60 seconds), consider running
         if let Some(updated) = time.updated {
             let age_ms = now_ms.saturating_sub(updated);
             if age_ms < 60_000 {
@@ -130,7 +126,6 @@ fn determine_status(session: &OpenCodeSession) -> AgentStatus {
             }
         }
 
-        // If idle timestamp exists and is recent, consider idle
         if let Some(idle) = time.idle {
             let age_ms = now_ms.saturating_sub(idle);
             if age_ms < 300_000 {
@@ -142,15 +137,13 @@ fn determine_status(session: &OpenCodeSession) -> AgentStatus {
     AgentStatus::Unknown
 }
 
-/// Get last activity timestamp from session.
-fn last_activity(session: &OpenCodeSession) -> Option<u64> {
-    session.time.as_ref().and_then(|t| {
-        // Prefer updated, then idle, then created
-        t.updated.or(t.idle).or(t.created).map(|ms| ms / 1000)
-    })
+fn opencode_last_activity(session: &OpenCodeSession) -> Option<u64> {
+    session
+        .time
+        .as_ref()
+        .and_then(|t| t.updated.or(t.idle).or(t.created).map(|ms| ms / 1000))
 }
 
-/// Fetch OpenCode sessions and convert to AgentInfo list.
 pub async fn fetch_opencode_agents(config: &OpenCodeConfig) -> Vec<AgentInfo> {
     let now = SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -172,69 +165,36 @@ pub async fn fetch_opencode_agents(config: &OpenCodeConfig) -> Vec<AgentInfo> {
     let response = match req.send().await {
         Ok(resp) if resp.status().is_success() => resp,
         Ok(resp) => {
-            return vec![AgentInfo {
-                id: "opencode-error".to_string(),
-                name: "OpenCode".to_string(),
-                provider: "opencode".to_string(),
-                host: "unknown".to_string(),
-                model: None,
-                status: AgentStatus::Offline,
-                current_task: None,
-                last_activity_unix: None,
-                observed_at_unix: now,
-                token_usage: None,
-                context_usage: None,
-                cost_usd: None,
-                recent_errors: vec![format!("HTTP {}", resp.status())],
-                data_source: "opencode-api".to_string(),
-                last_refresh_unix: now,
-            }];
+            return vec![error_agent(
+                "opencode",
+                "OpenCode",
+                &format!("HTTP {}", resp.status()),
+                now,
+            )];
         }
         Err(e) => {
-            return vec![AgentInfo {
-                id: "opencode-error".to_string(),
-                name: "OpenCode".to_string(),
-                provider: "opencode".to_string(),
-                host: "unknown".to_string(),
-                model: None,
-                status: AgentStatus::Offline,
-                current_task: None,
-                last_activity_unix: None,
-                observed_at_unix: now,
-                token_usage: None,
-                context_usage: None,
-                cost_usd: None,
-                recent_errors: vec![if e.is_timeout() {
-                    "Connection timed out".to_string()
+            return vec![error_agent(
+                "opencode",
+                "OpenCode",
+                if e.is_timeout() {
+                    "Connection timed out"
                 } else {
-                    "Connection failed".to_string()
-                }],
-                data_source: "opencode-api".to_string(),
-                last_refresh_unix: now,
-            }];
+                    "Connection failed"
+                },
+                now,
+            )];
         }
     };
 
     let sessions: serde_json::Value = match response.json().await {
         Ok(v) => v,
         Err(_) => {
-            return vec![AgentInfo {
-                id: "opencode-error".to_string(),
-                name: "OpenCode".to_string(),
-                provider: "opencode".to_string(),
-                host: "unknown".to_string(),
-                model: None,
-                status: AgentStatus::Unknown,
-                current_task: None,
-                last_activity_unix: None,
-                observed_at_unix: now,
-                token_usage: None,
-                context_usage: None,
-                cost_usd: None,
-                recent_errors: vec!["Invalid JSON response".to_string()],
-                data_source: "opencode-api".to_string(),
-                last_refresh_unix: now,
-            }];
+            return vec![error_agent(
+                "opencode",
+                "OpenCode",
+                "Invalid JSON response",
+                now,
+            )];
         }
     };
 
@@ -283,9 +243,7 @@ pub async fn fetch_opencode_agents(config: &OpenCodeConfig) -> Vec<AgentInfo> {
                         .unwrap_or(0)
             });
 
-            let status = determine_status(&session);
-
-            // Use session title as current task if available
+            let status = determine_opencode_status(&session);
             let current_task = session.title.clone();
 
             Some(AgentInfo {
@@ -299,7 +257,7 @@ pub async fn fetch_opencode_agents(config: &OpenCodeConfig) -> Vec<AgentInfo> {
                 model: model_name,
                 status,
                 current_task,
-                last_activity_unix: last_activity(&session),
+                last_activity_unix: opencode_last_activity(&session),
                 observed_at_unix: now,
                 token_usage: total_tokens,
                 context_usage: None,
@@ -310,6 +268,237 @@ pub async fn fetch_opencode_agents(config: &OpenCodeConfig) -> Vec<AgentInfo> {
             })
         })
         .collect()
+}
+
+// ============================================================
+// Hermes Agent Adapter
+// ============================================================
+
+#[derive(serde::Deserialize, Debug)]
+#[allow(dead_code)]
+struct HermesSession {
+    id: String,
+    source: Option<String>,
+    user_id: Option<String>,
+    model: Option<String>,
+    title: Option<String>,
+    started_at: Option<f64>,
+    ended_at: Option<f64>,
+    end_reason: Option<String>,
+    message_count: Option<u64>,
+    tool_call_count: Option<u64>,
+    input_tokens: Option<u64>,
+    output_tokens: Option<u64>,
+    cache_read_tokens: Option<u64>,
+    cache_write_tokens: Option<u64>,
+    reasoning_tokens: Option<u64>,
+    estimated_cost_usd: Option<f64>,
+    actual_cost_usd: Option<f64>,
+    api_call_count: Option<u64>,
+    parent_session_id: Option<String>,
+    last_active: Option<f64>,
+    preview: Option<String>,
+}
+
+#[derive(Clone, Debug)]
+pub struct HermesConfig {
+    pub endpoint: String,
+    pub api_key: Option<String>,
+    pub timeout_secs: u64,
+}
+
+impl HermesConfig {
+    pub fn from_env() -> Option<Self> {
+        let endpoint = std::env::var("HERMES_ENDPOINT").ok()?;
+        let api_key = std::env::var("HERMES_API_KEY").ok();
+        Some(Self {
+            endpoint,
+            api_key,
+            timeout_secs: 5,
+        })
+    }
+}
+
+fn determine_hermes_status(session: &HermesSession) -> AgentStatus {
+    // If ended_at is set, session is completed
+    if session.ended_at.is_some() {
+        if session.end_reason.as_deref() == Some("error") {
+            return AgentStatus::Failed;
+        }
+        return AgentStatus::Idle;
+    }
+
+    // Check last_active recency
+    if let Some(last_active) = session.last_active {
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|d| d.as_secs_f64())
+            .unwrap_or(0.0);
+        let age_secs = now - last_active;
+        if age_secs < 60.0 {
+            return AgentStatus::Running;
+        }
+        if age_secs < 300.0 {
+            return AgentStatus::Idle;
+        }
+    }
+
+    AgentStatus::Unknown
+}
+
+fn hermes_last_activity(session: &HermesSession) -> Option<u64> {
+    session.last_active.map(|ts| ts as u64)
+}
+
+fn hermes_token_usage(session: &HermesSession) -> Option<u64> {
+    let input = session.input_tokens.unwrap_or(0);
+    let output = session.output_tokens.unwrap_or(0);
+    let reasoning = session.reasoning_tokens.unwrap_or(0);
+    let cache_read = session.cache_read_tokens.unwrap_or(0);
+    let cache_write = session.cache_write_tokens.unwrap_or(0);
+    let total = input + output + reasoning + cache_read + cache_write;
+    if total > 0 {
+        Some(total)
+    } else {
+        None
+    }
+}
+
+pub async fn fetch_hermes_agents(config: &HermesConfig) -> Vec<AgentInfo> {
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(config.timeout_secs))
+        .build()
+        .unwrap_or_default();
+
+    let url = format!("{}/api/sessions", config.endpoint.trim_end_matches('/'));
+
+    let mut req = client.get(&url);
+    if let Some(key) = &config.api_key {
+        req = req.bearer_auth(key);
+    }
+
+    let response = match req.send().await {
+        Ok(resp) if resp.status().is_success() => resp,
+        Ok(resp) => {
+            return vec![error_agent(
+                "hermes",
+                "Hermes Agent",
+                &format!("HTTP {}", resp.status()),
+                now,
+            )];
+        }
+        Err(e) => {
+            return vec![error_agent(
+                "hermes",
+                "Hermes Agent",
+                if e.is_timeout() {
+                    "Connection timed out"
+                } else {
+                    "Connection failed"
+                },
+                now,
+            )];
+        }
+    };
+
+    let body: serde_json::Value = match response.json().await {
+        Ok(v) => v,
+        Err(_) => {
+            return vec![error_agent(
+                "hermes",
+                "Hermes Agent",
+                "Invalid JSON response",
+                now,
+            )];
+        }
+    };
+
+    let session_list = body
+        .get("data")
+        .and_then(|d| d.as_array())
+        .cloned()
+        .unwrap_or_default();
+
+    if session_list.is_empty() {
+        return vec![AgentInfo {
+            id: "hermes-none".to_string(),
+            name: "Hermes Agent".to_string(),
+            provider: "hermes".to_string(),
+            host: "local".to_string(),
+            model: None,
+            status: AgentStatus::Idle,
+            current_task: None,
+            last_activity_unix: None,
+            observed_at_unix: now,
+            token_usage: None,
+            context_usage: None,
+            cost_usd: None,
+            recent_errors: vec![],
+            data_source: "hermes-api".to_string(),
+            last_refresh_unix: now,
+        }];
+    }
+
+    session_list
+        .iter()
+        .filter_map(|s| {
+            let session: HermesSession = serde_json::from_value(s.clone()).ok()?;
+
+            let status = determine_hermes_status(&session);
+            let tokens = hermes_token_usage(&session);
+            let cost = session.actual_cost_usd.or(session.estimated_cost_usd);
+
+            Some(AgentInfo {
+                id: session.id.clone(),
+                name: session
+                    .title
+                    .clone()
+                    .unwrap_or_else(|| "Hermes Session".to_string()),
+                provider: "hermes".to_string(),
+                host: "local".to_string(),
+                model: session.model.clone(),
+                status,
+                current_task: session.title.clone(),
+                last_activity_unix: hermes_last_activity(&session),
+                observed_at_unix: now,
+                token_usage: tokens,
+                context_usage: None,
+                cost_usd: cost,
+                recent_errors: vec![],
+                data_source: "hermes-api".to_string(),
+                last_refresh_unix: now,
+            })
+        })
+        .collect()
+}
+
+// ============================================================
+// Shared helpers
+// ============================================================
+
+fn error_agent(provider: &str, name: &str, error: &str, now: u64) -> AgentInfo {
+    AgentInfo {
+        id: format!("{}-error", provider),
+        name: name.to_string(),
+        provider: provider.to_string(),
+        host: "unknown".to_string(),
+        model: None,
+        status: AgentStatus::Offline,
+        current_task: None,
+        last_activity_unix: None,
+        observed_at_unix: now,
+        token_usage: None,
+        context_usage: None,
+        cost_usd: None,
+        recent_errors: vec![error.to_string()],
+        data_source: format!("{}-api", provider),
+        last_refresh_unix: now,
+    }
 }
 
 /// List all configured agents.
@@ -343,6 +532,35 @@ pub async fn list_agents() -> Vec<AgentInfo> {
         });
     }
 
+    // Hermes Agent
+    if let Some(config) = HermesConfig::from_env() {
+        agents.extend(fetch_hermes_agents(&config).await);
+    } else {
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|d| d.as_secs())
+            .unwrap_or(0);
+        agents.push(AgentInfo {
+            id: "hermes-unconfigured".to_string(),
+            name: "Hermes Agent".to_string(),
+            provider: "hermes".to_string(),
+            host: "local".to_string(),
+            model: None,
+            status: AgentStatus::Unknown,
+            current_task: None,
+            last_activity_unix: None,
+            observed_at_unix: now,
+            token_usage: None,
+            context_usage: None,
+            cost_usd: None,
+            recent_errors: vec![
+                "Not configured (set HERMES_ENDPOINT and HERMES_API_KEY)".to_string()
+            ],
+            data_source: "none".to_string(),
+            last_refresh_unix: now,
+        });
+    }
+
     agents
 }
 
@@ -352,6 +570,7 @@ pub async fn list_agents() -> Vec<AgentInfo> {
 mod tests {
     use super::*;
 
+    // OpenCode tests
     #[test]
     fn determine_status_succeeded_is_idle() {
         let session = OpenCodeSession {
@@ -365,7 +584,7 @@ mod tests {
             time: None,
             title: None,
         };
-        assert_eq!(determine_status(&session), AgentStatus::Idle);
+        assert_eq!(determine_opencode_status(&session), AgentStatus::Idle);
     }
 
     #[test]
@@ -381,7 +600,7 @@ mod tests {
             time: None,
             title: None,
         };
-        assert_eq!(determine_status(&session), AgentStatus::Failed);
+        assert_eq!(determine_opencode_status(&session), AgentStatus::Failed);
     }
 
     #[test]
@@ -397,7 +616,7 @@ mod tests {
             time: None,
             title: None,
         };
-        assert_eq!(determine_status(&session), AgentStatus::Unknown);
+        assert_eq!(determine_opencode_status(&session), AgentStatus::Unknown);
     }
 
     #[test]
@@ -418,7 +637,7 @@ mod tests {
             }),
             title: None,
         };
-        assert_eq!(last_activity(&session), Some(3));
+        assert_eq!(opencode_last_activity(&session), Some(3));
     }
 
     #[test]
@@ -439,14 +658,132 @@ mod tests {
             }),
             title: None,
         };
-        assert_eq!(last_activity(&session), Some(1));
+        assert_eq!(opencode_last_activity(&session), Some(1));
+    }
+
+    // Hermes tests
+    #[test]
+    fn hermes_status_ended_with_error_is_failed() {
+        let session = HermesSession {
+            id: "test".to_string(),
+            source: None,
+            user_id: None,
+            model: Some("gpt-6-luna-900k".to_string()),
+            title: None,
+            started_at: Some(1000.0),
+            ended_at: Some(2000.0),
+            end_reason: Some("error".to_string()),
+            message_count: None,
+            tool_call_count: None,
+            input_tokens: None,
+            output_tokens: None,
+            cache_read_tokens: None,
+            cache_write_tokens: None,
+            reasoning_tokens: None,
+            estimated_cost_usd: None,
+            actual_cost_usd: None,
+            api_call_count: None,
+            parent_session_id: None,
+            last_active: None,
+            preview: None,
+        };
+        assert_eq!(determine_hermes_status(&session), AgentStatus::Failed);
     }
 
     #[test]
-    fn open_code_config_from_env_none() {
-        // Without env var set, should return None
+    fn hermes_status_ended_normally_is_idle() {
+        let session = HermesSession {
+            id: "test".to_string(),
+            source: None,
+            user_id: None,
+            model: Some("gpt-6-luna-900k".to_string()),
+            title: None,
+            started_at: Some(1000.0),
+            ended_at: Some(2000.0),
+            end_reason: None,
+            message_count: None,
+            tool_call_count: None,
+            input_tokens: None,
+            output_tokens: None,
+            cache_read_tokens: None,
+            cache_write_tokens: None,
+            reasoning_tokens: None,
+            estimated_cost_usd: None,
+            actual_cost_usd: None,
+            api_call_count: None,
+            parent_session_id: None,
+            last_active: None,
+            preview: None,
+        };
+        assert_eq!(determine_hermes_status(&session), AgentStatus::Idle);
+    }
+
+    #[test]
+    fn hermes_token_usage_sums_all() {
+        let session = HermesSession {
+            id: "test".to_string(),
+            source: None,
+            user_id: None,
+            model: None,
+            title: None,
+            started_at: None,
+            ended_at: None,
+            end_reason: None,
+            message_count: None,
+            tool_call_count: None,
+            input_tokens: Some(100),
+            output_tokens: Some(50),
+            cache_read_tokens: Some(200),
+            cache_write_tokens: Some(10),
+            reasoning_tokens: Some(25),
+            estimated_cost_usd: None,
+            actual_cost_usd: None,
+            api_call_count: None,
+            parent_session_id: None,
+            last_active: None,
+            preview: None,
+        };
+        assert_eq!(hermes_token_usage(&session), Some(385));
+    }
+
+    #[test]
+    fn hermes_token_usage_none_when_zero() {
+        let session = HermesSession {
+            id: "test".to_string(),
+            source: None,
+            user_id: None,
+            model: None,
+            title: None,
+            started_at: None,
+            ended_at: None,
+            end_reason: None,
+            message_count: None,
+            tool_call_count: None,
+            input_tokens: None,
+            output_tokens: None,
+            cache_read_tokens: None,
+            cache_write_tokens: None,
+            reasoning_tokens: None,
+            estimated_cost_usd: None,
+            actual_cost_usd: None,
+            api_call_count: None,
+            parent_session_id: None,
+            last_active: None,
+            preview: None,
+        };
+        assert_eq!(hermes_token_usage(&session), None);
+    }
+
+    #[test]
+    fn opencode_config_from_env_none() {
         std::env::remove_var("OPENCODE_ENDPOINT");
         assert!(OpenCodeConfig::from_env().is_none());
+    }
+
+    #[test]
+    fn hermes_config_from_env_none() {
+        std::env::remove_var("HERMES_ENDPOINT");
+        assert!(HermesConfig::from_env().is_none());
     }
 
     #[test]
@@ -478,5 +815,7 @@ mod tests {
         let json = serde_json::to_string(&info).unwrap();
         assert!(json.contains("\"cost_usd\":3.13"));
         assert!(json.contains("\"token_usage\":6000000"));
+        assert!(json.contains("\"last_activity_unix\":1792846204"));
+        assert!(json.contains("\"observed_at_unix\":1792846204"));
     }
 }
