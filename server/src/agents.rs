@@ -579,7 +579,7 @@ pub async fn fetch_paperclip_agents(config: &PaperclipConfig) -> Vec<AgentInfo> 
     let companies_url = format!("{}/api/companies", config.endpoint.trim_end_matches('/'));
     let mut companies_req = client.get(&companies_url);
     if let Some(key) = &config.api_key {
-        companies_req = companies_req.bearer_auth(key);
+        companies_req = companies_req.header("X-API-Key", key);
     }
 
     let companies_resp = match companies_req.send().await {
@@ -635,7 +635,7 @@ pub async fn fetch_paperclip_agents(config: &PaperclipConfig) -> Vec<AgentInfo> 
         );
         let mut req = client.get(&url);
         if let Some(key) = &config.api_key {
-            req = req.bearer_auth(key);
+            req = req.header("X-API-Key", key);
         }
 
         let response = match req.send().await {
