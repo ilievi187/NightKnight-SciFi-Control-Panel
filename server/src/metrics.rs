@@ -701,6 +701,7 @@ fn parse_swap_kib(contents: &str) -> Option<(u64, u64)> {
     Some((total?, free?))
 }
 
+#[cfg(target_os = "linux")]
 fn build_swap_metrics(total_kib: u64, free_kib: u64) -> SwapMetrics {
     let total_bytes = total_kib.saturating_mul(1024);
     let free_bytes = free_kib.min(total_kib).saturating_mul(1024);
@@ -853,6 +854,7 @@ fn storage_volumes() -> Metric<Vec<StorageVolumeMetrics>> {
     Metric::available(volumes.into_values().collect())
 }
 
+#[cfg(target_os = "linux")]
 fn inode_usage(total: u64, free: u64) -> Option<InodeMetrics> {
     if total == 0 {
         return None;
