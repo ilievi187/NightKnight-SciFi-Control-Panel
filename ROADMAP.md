@@ -25,7 +25,8 @@
 - [x] AMD GPU telemetry via sysfs (PR #20)
 - [x] Windows telemetry adapter (PR #25)
 - [x] Fix local CPU telemetry (PR #24)
-- [ ] Windows CI validation (PR pending)
+- [x] Fix Windows CI compilation (PR #26 pending)
+- [ ] Windows CI validation
 - [ ] Windows telemetry runtime validation
 - [ ] Authenticated Tailscale connectivity (full implementation)
 - [ ] Host detail pages with historical charts
