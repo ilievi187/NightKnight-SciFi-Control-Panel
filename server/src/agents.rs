@@ -478,6 +478,170 @@ pub async fn fetch_hermes_agents(config: &HermesConfig) -> Vec<AgentInfo> {
 }
 
 // ============================================================
+// Paperclip Adapter
+// ============================================================
+
+#[derive(serde::Deserialize, Debug)]
+#[allow(dead_code)]
+struct PaperclipAgent {
+    id: String,
+    name: Option<String>,
+    status: Option<String>,
+    #[serde(rename = "currentTaskId")]
+    current_task_id: Option<String>,
+    #[serde(rename = "currentTaskTitle")]
+    current_task_title: Option<String>,
+    model: Option<String>,
+    #[serde(rename = "lastHeartbeatAt")]
+    last_heartbeat_at: Option<String>,
+    #[serde(rename = "tokenUsage")]
+    token_usage: Option<u64>,
+    #[serde(rename = "contextUsage")]
+    context_usage: Option<f64>,
+}
+
+#[derive(Clone, Debug)]
+pub struct PaperclipConfig {
+    pub endpoint: String,
+    pub api_key: Option<String>,
+    pub timeout_secs: u64,
+}
+
+impl PaperclipConfig {
+    pub fn from_env() -> Option<Self> {
+        let endpoint = std::env::var("PAPERCLIP_ENDPOINT").ok()?;
+        let api_key = std::env::var("PAPERCLIP_API_KEY").ok();
+        Some(Self {
+            endpoint,
+            api_key,
+            timeout_secs: 5,
+        })
+    }
+}
+
+fn determine_paperclip_status(status: &Option<String>) -> AgentStatus {
+    match status.as_deref() {
+        Some("running") | Some("active") => AgentStatus::Running,
+        Some("idle") => AgentStatus::Idle,
+        Some("failed") | Some("error") => AgentStatus::Failed,
+        Some("offline") => AgentStatus::Offline,
+        _ => AgentStatus::Unknown,
+    }
+}
+
+pub async fn fetch_paperclip_agents(config: &PaperclipConfig) -> Vec<AgentInfo> {
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(config.timeout_secs))
+        .build()
+        .unwrap_or_default();
+
+    let url = format!("{}/api/agents", config.endpoint.trim_end_matches('/'));
+
+    let mut req = client.get(&url);
+    if let Some(key) = &config.api_key {
+        req = req.bearer_auth(key);
+    }
+
+    let response = match req.send().await {
+        Ok(resp) if resp.status().is_success() => resp,
+        Ok(resp) => {
+            return vec![error_agent(
+                "paperclip",
+                "Paperclip",
+                &format!("HTTP {}", resp.status()),
+                now,
+            )];
+        }
+        Err(e) => {
+            return vec![error_agent(
+                "paperclip",
+                "Paperclip",
+                if e.is_timeout() {
+                    "Connection timed out"
+                } else {
+                    "Connection failed"
+                },
+                now,
+            )];
+        }
+    };
+
+    let body: serde_json::Value = match response.json().await {
+        Ok(v) => v,
+        Err(_) => {
+            return vec![error_agent(
+                "paperclip",
+                "Paperclip",
+                "Invalid JSON response",
+                now,
+            )];
+        }
+    };
+
+    let agent_list = body
+        .get("data")
+        .and_then(|d| d.as_array())
+        .or_else(|| body.get("agents").and_then(|a| a.as_array()))
+        .or_else(|| body.as_array())
+        .cloned()
+        .unwrap_or_default();
+
+    if agent_list.is_empty() {
+        return vec![AgentInfo {
+            id: "paperclip-none".to_string(),
+            name: "Paperclip".to_string(),
+            provider: "paperclip".to_string(),
+            host: "local".to_string(),
+            model: None,
+            status: AgentStatus::Idle,
+            current_task: None,
+            last_activity_unix: None,
+            observed_at_unix: now,
+            token_usage: None,
+            context_usage: None,
+            cost_usd: None,
+            recent_errors: vec![],
+            data_source: "paperclip-api".to_string(),
+            last_refresh_unix: now,
+        }];
+    }
+
+    agent_list
+        .iter()
+        .filter_map(|a| {
+            let agent: PaperclipAgent = serde_json::from_value(a.clone()).ok()?;
+            let status = determine_paperclip_status(&agent.status);
+
+            Some(AgentInfo {
+                id: agent.id.clone(),
+                name: agent
+                    .name
+                    .clone()
+                    .unwrap_or_else(|| "Paperclip Agent".to_string()),
+                provider: "paperclip".to_string(),
+                host: "local".to_string(),
+                model: agent.model.clone(),
+                status,
+                current_task: agent.current_task_title.clone(),
+                last_activity_unix: None,
+                observed_at_unix: now,
+                token_usage: agent.token_usage,
+                context_usage: agent.context_usage,
+                cost_usd: None,
+                recent_errors: vec![],
+                data_source: "paperclip-api".to_string(),
+                last_refresh_unix: now,
+            })
+        })
+        .collect()
+}
+
+// ============================================================
 // Shared helpers
 // ============================================================
 
@@ -527,6 +691,33 @@ pub async fn list_agents() -> Vec<AgentInfo> {
             context_usage: None,
             cost_usd: None,
             recent_errors: vec!["Not configured (set OPENCODE_ENDPOINT)".to_string()],
+            data_source: "none".to_string(),
+            last_refresh_unix: now,
+        });
+    }
+
+    // Paperclip
+    if let Some(config) = PaperclipConfig::from_env() {
+        agents.extend(fetch_paperclip_agents(&config).await);
+    } else {
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|d| d.as_secs())
+            .unwrap_or(0);
+        agents.push(AgentInfo {
+            id: "paperclip-unconfigured".to_string(),
+            name: "Paperclip".to_string(),
+            provider: "paperclip".to_string(),
+            host: "local".to_string(),
+            model: None,
+            status: AgentStatus::Unknown,
+            current_task: None,
+            last_activity_unix: None,
+            observed_at_unix: now,
+            token_usage: None,
+            context_usage: None,
+            cost_usd: None,
+            recent_errors: vec!["Not configured (set PAPERCLIP_ENDPOINT)".to_string()],
             data_source: "none".to_string(),
             last_refresh_unix: now,
         });
@@ -791,6 +982,53 @@ mod tests {
         let status = AgentStatus::Running;
         let json = serde_json::to_string(&status).unwrap();
         assert_eq!(json, "\"running\"");
+    }
+
+    #[test]
+    fn paperclip_config_from_env_none() {
+        std::env::remove_var("PAPERCLIP_ENDPOINT");
+        assert!(PaperclipConfig::from_env().is_none());
+    }
+
+    #[test]
+    fn determine_paperclip_status_running() {
+        assert_eq!(
+            determine_paperclip_status(&Some("running".to_string())),
+            AgentStatus::Running
+        );
+        assert_eq!(
+            determine_paperclip_status(&Some("active".to_string())),
+            AgentStatus::Running
+        );
+    }
+
+    #[test]
+    fn determine_paperclip_status_idle() {
+        assert_eq!(
+            determine_paperclip_status(&Some("idle".to_string())),
+            AgentStatus::Idle
+        );
+    }
+
+    #[test]
+    fn determine_paperclip_status_failed() {
+        assert_eq!(
+            determine_paperclip_status(&Some("failed".to_string())),
+            AgentStatus::Failed
+        );
+        assert_eq!(
+            determine_paperclip_status(&Some("error".to_string())),
+            AgentStatus::Failed
+        );
+    }
+
+    #[test]
+    fn determine_paperclip_status_unknown() {
+        assert_eq!(determine_paperclip_status(&None), AgentStatus::Unknown);
+        assert_eq!(
+            determine_paperclip_status(&Some("unknown".to_string())),
+            AgentStatus::Unknown
+        );
     }
 
     #[test]
