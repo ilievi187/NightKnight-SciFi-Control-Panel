@@ -21,11 +21,14 @@
 - [x] Host registry foundation (PR #19)
 - [x] Multi-host connectivity with authenticated probing (PR #21)
 - [x] Real multi-host telemetry with JSON parsing (PR #22)
+- [x] Secure multi-host integration with auth (PR #23)
 - [x] AMD GPU telemetry via sysfs (PR #20)
-- [ ] Windows host telemetry adapter
-- [ ] AMD GPU error handling improved (optional fields)
-- [ ] Host detail pages with historical charts
+- [x] Windows telemetry adapter (PR #25)
+- [x] Fix local CPU telemetry (PR #24)
+- [ ] Windows CI validation (PR pending)
+- [ ] Windows telemetry runtime validation
 - [ ] Authenticated Tailscale connectivity (full implementation)
+- [ ] Host detail pages with historical charts
 
 ## Phase D — AI Agent Control Center 🔄
 - [x] AI agent status panel foundation (PR #18)
@@ -60,20 +63,24 @@
 | #20 | feat: add AMD GPU telemetry via sysfs | a43fe37 |
 | #21 | feat: multi-host connectivity with authenticated probing | 988219e |
 | #22 | feat: real multi-host telemetry with JSON parsing | c2477ee |
+| #23 | feat: secure multi-host integration with auth | 19294f7 |
+| #24 | feat: fix local CPU telemetry, real remote metrics parsing | 46a9393 |
+| #25 | feat: add Windows telemetry adapter with PowerShell-based metrics | 2e64682 |
 
 ## Current Status
-- All CI checks passing
+- All CI checks passing (Linux)
+- Windows CI added (pending validation)
 - 24 Rust tests, frontend build passes
 - Local-first, AMD + NVIDIA GPU support
 - Multi-host probing with 5s timeout
 - Real remote metrics parsing (CPU, RAM, GPU, VRAM)
+- Windows telemetry adapter (unverified)
 
 ## Limitations
-- Remote host telemetry requires NIGHTKNIGHT_HOSTS env var
-- Auth token via NIGHTKNIGHT_HOST_TOKEN (Bearer header)
-- Windows telemetry not yet implemented
+- Windows telemetry untested (no Windows host available)
+- Multi-host not verified (no second host available)
 - AI agents shown as unavailable (no adapters yet)
-- No live multi-host testing (single host environment)
+- Frontend has no automated tests
 
 ## Next Priority
-Phase C: Windows host telemetry adapter + Phase D: AI agent adapters
+Phase C: Windows CI validation + Phase D: AI agent adapters

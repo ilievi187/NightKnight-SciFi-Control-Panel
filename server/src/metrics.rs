@@ -1295,7 +1295,7 @@ fn parse_disk_io(contents: &str) -> Option<Vec<DiskIoMetrics>> {
 
 // Windows stubs for functions not yet implemented
 #[cfg(target_os = "windows")]
-fn cpu_cores() -> Metric<Vec<CpuCoreMetrics>> {
+async fn cpu_cores() -> Metric<Vec<CpuCoreMetrics>> {
     Metric::unavailable("Per-core CPU is not yet implemented for Windows.")
 }
 
@@ -1403,12 +1403,8 @@ async fn cpu_usage_percent() -> Metric<f64> {
 
 #[cfg(target_os = "windows")]
 fn memory() -> Metric<MemoryMetrics> {
-    let total = run_powershell(
-        "((Get-CimInstance Win32_OperatingSystem).TotalVisibleMemorySize * 1024) as [long]",
-    );
-    let free = run_powershell(
-        "((Get-CimInstance Win32_OperatingSystem).FreePhysicalMemory * 1024) as [long]",
-    );
+    let total = run_powershell("((Get-CimInstance Win32_OperatingSystem).TotalVisibleMemorySize * 1024)");
+    let free = run_powershell("((Get-CimInstance Win32_OperatingSystem).FreePhysicalMemory * 1024)");
     match (total, free) {
         (Some(t), Some(f)) => {
             let total_bytes = t.parse::<u64>().unwrap_or(0);
