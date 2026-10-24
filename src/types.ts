@@ -112,6 +112,12 @@ export interface HostEntry {
   connection_status: "connected" | "disconnected" | "unavailable";
   telemetry_source: string;
   is_local: boolean;
+  last_heartbeat_unix: number | null;
+  cpu_percent: number | null;
+  memory_percent: number | null;
+  gpu_name: string | null;
+  gpu_utilization: number | null;
+  error: string | null;
 }
 
 export interface AiAgentStatus {
