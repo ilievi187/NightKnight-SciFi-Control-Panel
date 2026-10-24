@@ -796,6 +796,20 @@ function App() {
                   <span>{host.telemetry_source}</span>
                   {host.is_local && <span>LOCAL</span>}
                 </div>
+                {host.error && (
+                  <p className="host-error">{host.error}</p>
+                )}
+                {host.cpu_percent !== null && (
+                  <div className="host-telemetry">
+                    <span>CPU {host.cpu_percent.toFixed(0)}%</span>
+                    {host.memory_percent !== null && (
+                      <span>RAM {host.memory_percent.toFixed(0)}%</span>
+                    )}
+                    {host.gpu_name && (
+                      <span>GPU {host.gpu_name}</span>
+                    )}
+                  </div>
+                )}
               </article>
             ))}
           </div>

@@ -335,6 +335,23 @@ h1 {
   font-size: 17px;
 }
 
+.host-error {
+  margin: 6px 0 0;
+  color: #ff958b;
+  font-size: 9px;
+  font-family: var(--mono);
+}
+
+.host-telemetry {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 8px;
+  font-family: var(--mono);
+  font-size: 8px;
+  color: var(--blue);
+}
+
 .host-registry {
   margin: 0 0 24px;
   padding: 16px 0;
