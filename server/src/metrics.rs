@@ -701,6 +701,7 @@ fn parse_swap_kib(contents: &str) -> Option<(u64, u64)> {
     Some((total?, free?))
 }
 
+#[cfg(target_os = "linux")]
 fn build_swap_metrics(total_kib: u64, free_kib: u64) -> SwapMetrics {
     let total_bytes = total_kib.saturating_mul(1024);
     let free_bytes = free_kib.min(total_kib).saturating_mul(1024);
@@ -853,6 +854,7 @@ fn storage_volumes() -> Metric<Vec<StorageVolumeMetrics>> {
     Metric::available(volumes.into_values().collect())
 }
 
+#[cfg(target_os = "linux")]
 fn inode_usage(total: u64, free: u64) -> Option<InodeMetrics> {
     if total == 0 {
         return None;
@@ -1402,8 +1404,10 @@ async fn cpu_usage_percent() -> Metric<f64> {
 
 #[cfg(target_os = "windows")]
 fn memory() -> Metric<MemoryMetrics> {
-    let total = run_powershell("((Get-CimInstance Win32_OperatingSystem).TotalVisibleMemorySize * 1024)");
-    let free = run_powershell("((Get-CimInstance Win32_OperatingSystem).FreePhysicalMemory * 1024)");
+    let total =
+        run_powershell("((Get-CimInstance Win32_OperatingSystem).TotalVisibleMemorySize * 1024)");
+    let free =
+        run_powershell("((Get-CimInstance Win32_OperatingSystem).FreePhysicalMemory * 1024)");
     match (total, free) {
         (Some(t), Some(f)) => {
             let total_bytes = t.parse::<u64>().unwrap_or(0);
@@ -1486,10 +1490,11 @@ fn run_powershell(command: &str) -> Option<String> {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, target_os = "linux"))]
 mod tests {
     use super::*;
 
+    #[cfg(target_os = "linux")]
     #[test]
     fn calculates_inode_usage_and_omits_unknown_capacity() {
         let usage = inode_usage(1_000, 250).unwrap();
@@ -1522,6 +1527,7 @@ mod tests {
         assert_eq!(parse_swap_kib("SwapTotal: 2 MB\nSwapFree: 1 MB\n"), None);
     }
 
+    #[cfg(target_os = "linux")]
     #[test]
     fn calculates_swap_usage_and_handles_disabled_or_inconsistent_counts() {
         let usage = build_swap_metrics(2_048, 512);
