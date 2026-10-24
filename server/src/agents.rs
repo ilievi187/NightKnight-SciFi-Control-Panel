@@ -575,20 +575,20 @@ pub async fn fetch_paperclip_agents(config: &PaperclipConfig) -> Vec<AgentInfo> 
         .build()
         .unwrap_or_default();
 
-    let url = format!("{}/api/agents", config.endpoint.trim_end_matches('/'));
-
-    let mut req = client.get(&url);
+    // First, fetch companies to get company IDs
+    let companies_url = format!("{}/api/companies", config.endpoint.trim_end_matches('/'));
+    let mut companies_req = client.get(&companies_url);
     if let Some(key) = &config.api_key {
-        req = req.bearer_auth(key);
+        companies_req = companies_req.bearer_auth(key);
     }
 
-    let response = match req.send().await {
+    let companies_resp = match companies_req.send().await {
         Ok(resp) if resp.status().is_success() => resp,
         Ok(resp) => {
             return vec![error_agent(
                 "paperclip",
                 "Paperclip",
-                &format!("HTTP {}", resp.status()),
+                &format!("HTTP {} (companies)", resp.status()),
                 now,
             )];
         }
@@ -606,28 +606,94 @@ pub async fn fetch_paperclip_agents(config: &PaperclipConfig) -> Vec<AgentInfo> 
         }
     };
 
-    let body: serde_json::Value = match response.json().await {
+    let companies_body: serde_json::Value = match companies_resp.json().await {
         Ok(v) => v,
         Err(_) => {
             return vec![error_agent(
                 "paperclip",
                 "Paperclip",
-                "Invalid JSON response",
+                "Invalid JSON (companies)",
                 now,
             )];
         }
     };
 
-    let agent_list = body
-        .get("data")
-        .and_then(|d| d.as_array())
-        .or_else(|| body.get("agents").and_then(|a| a.as_array()))
-        .or_else(|| body.as_array())
-        .cloned()
-        .unwrap_or_default();
+    let company_list = companies_body.as_array().cloned().unwrap_or_default();
 
-    if agent_list.is_empty() {
-        return vec![AgentInfo {
+    // Collect agents from all companies
+    let mut all_agents = Vec::new();
+    for company in &company_list {
+        let company_id = match company.get("id").and_then(|v| v.as_str()) {
+            Some(id) => id,
+            None => continue,
+        };
+
+        let url = format!(
+            "{}/api/companies/{}/agents",
+            config.endpoint.trim_end_matches('/'),
+            company_id
+        );
+        let mut req = client.get(&url);
+        if let Some(key) = &config.api_key {
+            req = req.bearer_auth(key);
+        }
+
+        let response = match req.send().await {
+            Ok(resp) if resp.status().is_success() => resp,
+            Ok(resp) => {
+                all_agents.push(error_agent(
+                    "paperclip",
+                    "Paperclip",
+                    &format!("HTTP {} (agents)", resp.status()),
+                    now,
+                ));
+                continue;
+            }
+            Err(e) => {
+                all_agents.push(error_agent(
+                    "paperclip",
+                    "Paperclip",
+                    if e.is_timeout() {
+                        "Connection timed out"
+                    } else {
+                        "Connection failed"
+                    },
+                    now,
+                ));
+                continue;
+            }
+        };
+
+        let body: serde_json::Value = match response.json().await {
+            Ok(v) => v,
+            Err(_) => {
+                all_agents.push(error_agent(
+                    "paperclip",
+                    "Paperclip",
+                    "Invalid JSON response",
+                    now,
+                ));
+                continue;
+            }
+        };
+
+        let agent_list = body
+            .get("data")
+            .and_then(|d| d.as_array())
+            .or_else(|| body.get("agents").and_then(|a| a.as_array()))
+            .or_else(|| body.as_array())
+            .cloned()
+            .unwrap_or_default();
+
+        for a in &agent_list {
+            if let Some(agent) = parse_paperclip_agent(a, now) {
+                all_agents.push(agent);
+            }
+        }
+    }
+
+    if all_agents.is_empty() {
+        all_agents.push(AgentInfo {
             id: "paperclip-none".to_string(),
             name: "Paperclip".to_string(),
             provider: "paperclip".to_string(),
@@ -644,38 +710,37 @@ pub async fn fetch_paperclip_agents(config: &PaperclipConfig) -> Vec<AgentInfo> 
             recent_errors: vec![],
             data_source: "paperclip-api".to_string(),
             last_refresh_unix: now,
-        }];
+        });
     }
 
-    agent_list
-        .iter()
-        .filter_map(|a| {
-            let agent: PaperclipAgent = serde_json::from_value(a.clone()).ok()?;
-            let status = determine_paperclip_status(&agent.status);
+    all_agents
+}
 
-            Some(AgentInfo {
-                id: agent.id.clone(),
-                name: agent
-                    .name
-                    .clone()
-                    .unwrap_or_else(|| "Paperclip Agent".to_string()),
-                provider: "paperclip".to_string(),
-                host: "local".to_string(),
-                model: agent.model.clone(),
-                status,
-                current_task: agent.current_task_title.clone(),
-                last_activity_unix: None,
-                observed_at_unix: now,
-                token_usage: agent.token_usage,
-                context_usage: agent.context_usage,
-                cost_usd: None,
-                tokens_per_second: None,
-                recent_errors: vec![],
-                data_source: "paperclip-api".to_string(),
-                last_refresh_unix: now,
-            })
-        })
-        .collect()
+fn parse_paperclip_agent(a: &serde_json::Value, now: u64) -> Option<AgentInfo> {
+    let agent: PaperclipAgent = serde_json::from_value(a.clone()).ok()?;
+    let status = determine_paperclip_status(&agent.status);
+
+    Some(AgentInfo {
+        id: agent.id.clone(),
+        name: agent
+            .name
+            .clone()
+            .unwrap_or_else(|| "Paperclip Agent".to_string()),
+        provider: "paperclip".to_string(),
+        host: "local".to_string(),
+        model: agent.model.clone(),
+        status,
+        current_task: agent.current_task_title.clone(),
+        last_activity_unix: None,
+        observed_at_unix: now,
+        token_usage: agent.token_usage,
+        context_usage: agent.context_usage,
+        cost_usd: None,
+        tokens_per_second: None,
+        recent_errors: vec![],
+        data_source: "paperclip-api".to_string(),
+        last_refresh_unix: now,
+    })
 }
 
 // ============================================================
