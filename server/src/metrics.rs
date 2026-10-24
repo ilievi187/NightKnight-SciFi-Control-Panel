@@ -1402,8 +1402,10 @@ async fn cpu_usage_percent() -> Metric<f64> {
 
 #[cfg(target_os = "windows")]
 fn memory() -> Metric<MemoryMetrics> {
-    let total = run_powershell("((Get-CimInstance Win32_OperatingSystem).TotalVisibleMemorySize * 1024)");
-    let free = run_powershell("((Get-CimInstance Win32_OperatingSystem).FreePhysicalMemory * 1024)");
+    let total =
+        run_powershell("((Get-CimInstance Win32_OperatingSystem).TotalVisibleMemorySize * 1024)");
+    let free =
+        run_powershell("((Get-CimInstance Win32_OperatingSystem).FreePhysicalMemory * 1024)");
     match (total, free) {
         (Some(t), Some(f)) => {
             let total_bytes = t.parse::<u64>().unwrap_or(0);
