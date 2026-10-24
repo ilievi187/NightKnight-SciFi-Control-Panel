@@ -117,6 +117,9 @@ export interface HostEntry {
   memory_percent: number | null;
   gpu_name: string | null;
   gpu_utilization: number | null;
+  gpu_temperature: number | null;
+  vram_used_bytes: number | null;
+  vram_total_bytes: number | null;
   error: string | null;
 }
 

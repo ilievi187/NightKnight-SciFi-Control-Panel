@@ -160,7 +160,10 @@ function StorageVolumeCard({ volume }: { volume: StorageVolumeMetrics }) {
 }
 
 function GpuCard({ gpu }: { gpu: GpuMetrics }) {
-  const utilization = Math.min(100, Math.max(0, gpu.utilization_percent));
+  const utilization =
+    gpu.utilization_percent !== null
+      ? Math.min(100, Math.max(0, gpu.utilization_percent))
+      : null;
   const memoryUsed =
     gpu.memory_total_bytes > 0
       ? Math.min(
@@ -173,12 +176,18 @@ function GpuCard({ gpu }: { gpu: GpuMetrics }) {
     <article className="gpu-card">
       <div className="gpu-card-heading">
         <strong title={gpu.name}>{gpu.name}</strong>
-        <span>{gpu.temperature_celsius}°C</span>
+        <span>
+          {gpu.temperature_celsius !== null
+            ? `${gpu.temperature_celsius}°C`
+            : "N/A"}
+        </span>
       </div>
       <div className="gpu-meter-block">
         <div className="gpu-meter-label">
           <span>CORE UTILIZATION</span>
-          <strong>{utilization}%</strong>
+          <strong>
+            {utilization !== null ? `${utilization}%` : "N/A"}
+          </strong>
         </div>
         <div
           className="gpu-meter"
@@ -186,9 +195,9 @@ function GpuCard({ gpu }: { gpu: GpuMetrics }) {
           aria-label={`${gpu.name} core utilization`}
           aria-valuemin={0}
           aria-valuemax={100}
-          aria-valuenow={utilization}
+          aria-valuenow={utilization ?? 0}
         >
-          <span style={{ width: `${utilization}%` }} />
+          <span style={{ width: utilization !== null ? `${utilization}%` : "0%" }} />
         </div>
       </div>
       <div className="gpu-memory-block">
@@ -735,7 +744,8 @@ function App() {
               <span className="overview-label">GPU</span>
               <span className="overview-value">
                 {metrics.gpu_metrics.status === "available" &&
-                metrics.gpu_metrics.value.length > 0
+                metrics.gpu_metrics.value.length > 0 &&
+                metrics.gpu_metrics.value[0].utilization_percent !== null
                   ? metrics.gpu_metrics.value[0].utilization_percent + "%"
                   : "N/A"}
               </span>
@@ -744,7 +754,8 @@ function App() {
                   style={{
                     width:
                       metrics.gpu_metrics.status === "available" &&
-                      metrics.gpu_metrics.value.length > 0
+                      metrics.gpu_metrics.value.length > 0 &&
+                      metrics.gpu_metrics.value[0].utilization_percent !== null
                         ? metrics.gpu_metrics.value[0].utilization_percent + "%"
                         : "0%",
                   }}

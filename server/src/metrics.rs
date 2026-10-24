@@ -87,10 +87,10 @@ pub struct DiskIoMetrics {
 #[derive(Serialize)]
 pub struct GpuMetrics {
     pub name: String,
-    pub utilization_percent: u8,
+    pub utilization_percent: Option<u8>,
     pub memory_total_bytes: u64,
     pub memory_used_bytes: u64,
-    pub temperature_celsius: u16,
+    pub temperature_celsius: Option<u16>,
 }
 
 #[derive(Serialize)]
@@ -205,18 +205,14 @@ pub async fn collect_host_metrics() -> HostMetrics {
 }
 
 fn unavailable_integrations() -> Vec<IntegrationStatus> {
-    [
-        "Container runtime",
-        "Remote probes",
-        "Cloud provider APIs",
-    ]
-    .into_iter()
-    .map(|name| IntegrationStatus {
-        name: name.to_string(),
-        status: "unavailable",
-        reason: "No local source or endpoint is configured.",
-    })
-    .collect()
+    ["Container runtime", "Remote probes", "Cloud provider APIs"]
+        .into_iter()
+        .map(|name| IntegrationStatus {
+            name: name.to_string(),
+            status: "unavailable",
+            reason: "No local source or endpoint is configured.",
+        })
+        .collect()
 }
 
 #[cfg(target_os = "linux")]
@@ -279,19 +275,25 @@ async fn cpu_cores() -> Metric<Vec<CpuCoreMetrics>> {
     let first = match read_cpu_core_counters() {
         Some(counters) => counters,
         None => {
-            return Metric::unavailable("Linux per-core CPU counters in /proc/stat are unavailable.")
+            return Metric::unavailable(
+                "Linux per-core CPU counters in /proc/stat are unavailable.",
+            )
         }
     };
     tokio::time::sleep(std::time::Duration::from_millis(160)).await;
     let second = match read_cpu_core_counters() {
         Some(counters) => counters,
         None => {
-            return Metric::unavailable("Linux per-core CPU counters in /proc/stat are unavailable.")
+            return Metric::unavailable(
+                "Linux per-core CPU counters in /proc/stat are unavailable.",
+            )
         }
     };
     let cores = calculate_cpu_core_usage(&first, &second);
     if cores.is_empty() {
-        return Metric::unavailable("Linux per-core CPU counters did not advance during the sample.");
+        return Metric::unavailable(
+            "Linux per-core CPU counters did not advance during the sample.",
+        );
     }
     Metric::available(cores)
 }
@@ -323,13 +325,17 @@ fn system_pressure() -> Metric<SystemPressureMetrics> {
         .ok()
         .and_then(|contents| parse_pressure_resource(&contents))
     else {
-        return Metric::unavailable("Linux CPU pressure data in /proc/pressure/cpu is unavailable.");
+        return Metric::unavailable(
+            "Linux CPU pressure data in /proc/pressure/cpu is unavailable.",
+        );
     };
     let Some(memory) = std::fs::read_to_string("/proc/pressure/memory")
         .ok()
         .and_then(|contents| parse_pressure_resource(&contents))
     else {
-        return Metric::unavailable("Linux memory pressure data in /proc/pressure/memory is unavailable.");
+        return Metric::unavailable(
+            "Linux memory pressure data in /proc/pressure/memory is unavailable.",
+        );
     };
     let Some(io) = std::fs::read_to_string("/proc/pressure/io")
         .ok()
@@ -375,16 +381,11 @@ fn parse_pressure_resource(contents: &str) -> Option<ResourcePressureMetrics> {
             _ => {}
         }
     }
-    Some(ResourcePressureMetrics {
-        some: some?,
-        full,
-    })
+    Some(ResourcePressureMetrics { some: some?, full })
 }
 
 #[cfg(target_os = "linux")]
-fn parse_pressure_averages<'a>(
-    fields: impl Iterator<Item = &'a str>,
-) -> Option<PressureAverages> {
+fn parse_pressure_averages<'a>(fields: impl Iterator<Item = &'a str>) -> Option<PressureAverages> {
     let mut avg10_percent = None;
     let mut avg60_percent = None;
     let mut avg300_percent = None;
@@ -419,7 +420,11 @@ fn parse_pressure_averages<'a>(
                     return None;
                 }
             }
-            "total" if total_microseconds.replace(value.parse::<u64>().ok()?).is_some() => {
+            "total"
+                if total_microseconds
+                    .replace(value.parse::<u64>().ok()?)
+                    .is_some() =>
+            {
                 return None;
             }
             _ => {}
@@ -603,8 +608,8 @@ fn calculate_cpu_core_usage(
                 return None;
             }
             let busy_delta = total_delta - idle_delta;
-            let utilization_percent = (busy_delta as f64 * 100.0 / total_delta as f64)
-                .clamp(0.0, 100.0);
+            let utilization_percent =
+                (busy_delta as f64 * 100.0 / total_delta as f64).clamp(0.0, 100.0);
             Some(CpuCoreMetrics {
                 core_id: *core_id,
                 utilization_percent: (utilization_percent * 10.0).round() / 10.0,
@@ -990,9 +995,9 @@ fn disk_io() -> Metric<Vec<DiskIoMetrics>> {
         .and_then(|contents| parse_disk_io(&contents))
     {
         Some(devices) => Metric::available(devices),
-        None => Metric::unavailable(
-            "Linux block-device counters in /proc/diskstats are unavailable.",
-        ),
+        None => {
+            Metric::unavailable("Linux block-device counters in /proc/diskstats are unavailable.")
+        }
     }
 }
 
@@ -1132,7 +1137,7 @@ fn collect_amd_gpu_metrics() -> Option<Vec<GpuMetrics>> {
             let utilization = std::fs::read_to_string(device_path.join("gpu_busy_percent"))
                 .ok()
                 .and_then(|s| s.trim().parse::<f64>().ok())
-                .unwrap_or(0.0) as u8;
+                .map(|v| v as u8);
 
             // Read VRAM
             let vram_total = std::fs::read_to_string(device_path.join("mem_info_vram_total"))
@@ -1145,17 +1150,22 @@ fn collect_amd_gpu_metrics() -> Option<Vec<GpuMetrics>> {
                 .unwrap_or(0);
 
             // Read temperature from hwmon
-            let mut temperature = 0u16;
+            let mut temperature = None;
             if let Ok(hwmon_entries) = std::fs::read_dir(device_path.join("hwmon")) {
                 for hwmon in hwmon_entries.flatten() {
                     let temp_path = hwmon.path().join("temp1_input");
                     if let Ok(temp_str) = std::fs::read_to_string(&temp_path) {
                         if let Ok(temp_millidegrees) = temp_str.trim().parse::<i64>() {
-                            temperature = (temp_millidegrees / 1000) as u16;
+                            temperature = Some((temp_millidegrees / 1000) as u16);
                             break;
                         }
                     }
                 }
+            }
+
+            // Only include if we have at least VRAM info
+            if vram_total == 0 {
+                continue;
             }
 
             // Get GPU name
@@ -1174,7 +1184,7 @@ fn collect_amd_gpu_metrics() -> Option<Vec<GpuMetrics>> {
 
             gpus.push(GpuMetrics {
                 name: if name.is_empty() {
-                    format!("AMD GPU ({})", name)
+                    "AMD GPU".to_string()
                 } else {
                     name
                 },
@@ -1200,7 +1210,10 @@ fn collect_amd_gpu_metrics() -> Option<Vec<GpuMetrics>> {
 
 #[cfg(target_os = "linux")]
 fn parse_nvidia_smi_output(contents: &str) -> Option<Vec<GpuMetrics>> {
-    let rows: Vec<&str> = contents.lines().filter(|line| !line.trim().is_empty()).collect();
+    let rows: Vec<&str> = contents
+        .lines()
+        .filter(|line| !line.trim().is_empty())
+        .collect();
     if rows.is_empty() {
         return None;
     }
@@ -1212,16 +1225,18 @@ fn parse_nvidia_smi_output(contents: &str) -> Option<Vec<GpuMetrics>> {
                 return None;
             }
 
-            let utilization_percent = fields[1].parse::<u8>().ok()?;
-            if utilization_percent > 100 {
-                return None;
+            let utilization_percent = fields[1].parse::<u8>().ok();
+            if let Some(u) = utilization_percent {
+                if u > 100 {
+                    return None;
+                }
             }
             let memory_total_mib = fields[2].parse::<u64>().ok()?;
             let memory_used_mib = fields[3].parse::<u64>().ok()?;
             if memory_total_mib == 0 || memory_used_mib > memory_total_mib {
                 return None;
             }
-            let temperature_celsius = fields[4].parse::<u16>().ok()?;
+            let temperature_celsius = fields[4].parse::<u16>().ok();
 
             Some(GpuMetrics {
                 name: fields[0].to_string(),
@@ -1344,10 +1359,7 @@ mod tests {
             Some((635, 450))
         );
         assert_eq!(parse_cpu_counters("cpu 10 20"), None);
-        assert_eq!(
-            parse_cpu_counters("cpu 18446744073709551615 1 0 0"),
-            None
-        );
+        assert_eq!(parse_cpu_counters("cpu 18446744073709551615 1 0 0"), None);
     }
 
     #[cfg(target_os = "linux")]
@@ -1379,10 +1391,8 @@ mod tests {
     #[cfg(target_os = "linux")]
     #[test]
     fn parses_linux_pressure_windows_and_optional_full_stall_lines() {
-        let cpu = parse_pressure_resource(
-            "some avg10=1.25 avg60=2.50 avg300=3.75 total=12345\n",
-        )
-        .unwrap();
+        let cpu = parse_pressure_resource("some avg10=1.25 avg60=2.50 avg300=3.75 total=12345\n")
+            .unwrap();
         assert_eq!(cpu.some.avg10_percent, 1.25);
         assert_eq!(cpu.some.avg60_percent, 2.5);
         assert_eq!(cpu.some.avg300_percent, 3.75);
@@ -1404,10 +1414,8 @@ mod tests {
         assert_eq!(malformed_full.some.total_microseconds, 123);
         assert!(malformed_full.full.is_none());
 
-        let future_field = parse_pressure_resource(
-            "some avg10=1 avg60=2 avg300=3 total=789 newfield\n",
-        )
-        .unwrap();
+        let future_field =
+            parse_pressure_resource("some avg10=1 avg60=2 avg300=3 total=789 newfield\n").unwrap();
         assert_eq!(future_field.some.total_microseconds, 789);
 
         assert!(parse_pressure_resource("").is_none());
@@ -1416,7 +1424,10 @@ mod tests {
         assert!(parse_pressure_resource("some avg10=NaN avg60=0 avg300=0 total=0\n").is_none());
         assert!(parse_pressure_resource("some avg10=0 avg60=0 avg300=0\n").is_none());
         assert!(parse_pressure_resource("some avg10=0 avg60=0 avg300=0 total=nope\n").is_none());
-        assert!(parse_pressure_resource("some avg10=0 avg60=0 avg300=0 total=0\nsome avg10=0 avg60=0 avg300=0 total=0\n").is_none());
+        assert!(parse_pressure_resource(
+            "some avg10=0 avg60=0 avg300=0 total=0\nsome avg10=0 avg60=0 avg300=0 total=0\n"
+        )
+        .is_none());
     }
 
     #[cfg(target_os = "linux")]
@@ -1506,10 +1517,10 @@ mod tests {
 
         assert_eq!(gpus.len(), 2);
         assert_eq!(gpus[0].name, "NVIDIA RTX 6000 Ada Generation");
-        assert_eq!(gpus[0].utilization_percent, 37);
+        assert_eq!(gpus[0].utilization_percent, Some(37));
         assert_eq!(gpus[0].memory_total_bytes, 49_140 * 1024 * 1024);
         assert_eq!(gpus[0].memory_used_bytes, 12_288 * 1024 * 1024);
-        assert_eq!(gpus[0].temperature_celsius, 64);
+        assert_eq!(gpus[0].temperature_celsius, Some(64));
         assert_eq!(gpus[1].memory_used_bytes, 0);
     }
 
@@ -1517,9 +1528,12 @@ mod tests {
     #[test]
     fn rejects_incomplete_or_out_of_range_nvidia_gpu_data() {
         assert!(parse_nvidia_smi_output("").is_none());
-        assert!(parse_nvidia_smi_output("NVIDIA GPU, N/A, 8192, 1024, 54").is_none());
         assert!(parse_nvidia_smi_output("NVIDIA GPU, 101, 8192, 1024, 54").is_none());
         assert!(parse_nvidia_smi_output("NVIDIA GPU, 50, 8192, 8193, 54").is_none());
+        // N/A utilization is now acceptable (optional field)
+        let result = parse_nvidia_smi_output("NVIDIA GPU, N/A, 8192, 1024, 54");
+        assert!(result.is_some());
+        assert_eq!(result.unwrap()[0].utilization_percent, None);
     }
 
     #[cfg(target_os = "linux")]
