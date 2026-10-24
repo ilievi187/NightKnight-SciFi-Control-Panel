@@ -223,7 +223,7 @@ fn hostname() -> Metric<String> {
     }
 }
 
-#[cfg(not(target_os = "linux"))]
+#[cfg(all(not(target_os = "linux"), not(target_os = "windows")))]
 fn hostname() -> Metric<String> {
     Metric::unavailable("Host name collection is only implemented for Linux.")
 }
@@ -244,7 +244,7 @@ fn operating_system() -> Metric<String> {
     }
 }
 
-#[cfg(not(target_os = "linux"))]
+#[cfg(all(not(target_os = "linux"), not(target_os = "windows")))]
 fn operating_system() -> Metric<String> {
     Metric::unavailable("Operating system collection is only implemented for Linux.")
 }
@@ -298,12 +298,12 @@ async fn cpu_cores() -> Metric<Vec<CpuCoreMetrics>> {
     Metric::available(cores)
 }
 
-#[cfg(not(target_os = "linux"))]
+#[cfg(all(not(target_os = "linux"), not(target_os = "windows")))]
 async fn cpu_cores() -> Metric<Vec<CpuCoreMetrics>> {
     Metric::unavailable("Per-core CPU utilization is only collected on Linux.")
 }
 
-#[cfg(not(target_os = "linux"))]
+#[cfg(all(not(target_os = "linux"), not(target_os = "windows")))]
 async fn cpu_usage_percent() -> Metric<f64> {
     Metric::unavailable("CPU utilization collection is only implemented for Linux.")
 }
@@ -350,7 +350,7 @@ fn system_pressure() -> Metric<SystemPressureMetrics> {
     Metric::available(SystemPressureMetrics { cpu, memory, io })
 }
 
-#[cfg(not(target_os = "linux"))]
+#[cfg(all(not(target_os = "linux"), not(target_os = "windows")))]
 fn system_pressure() -> Metric<SystemPressureMetrics> {
     Metric::unavailable("System pressure stall information is only collected on Linux.")
 }
@@ -491,7 +491,7 @@ fn thermal_zones() -> Metric<Vec<ThermalZoneMetrics>> {
     Metric::available(zones)
 }
 
-#[cfg(not(target_os = "linux"))]
+#[cfg(all(not(target_os = "linux"), not(target_os = "windows")))]
 fn thermal_zones() -> Metric<Vec<ThermalZoneMetrics>> {
     Metric::unavailable("Thermal zone collection is only implemented for Linux.")
 }
@@ -505,7 +505,7 @@ fn parse_thermal_millidegrees(contents: &str) -> Option<f64> {
     Some(millidegrees as f64 / 1_000.0)
 }
 
-#[cfg(not(target_os = "linux"))]
+#[cfg(all(not(target_os = "linux"), not(target_os = "windows")))]
 fn load_average() -> Metric<LoadAverageMetrics> {
     Metric::unavailable("System load averages are only collected on Linux.")
 }
@@ -639,7 +639,7 @@ fn memory() -> Metric<MemoryMetrics> {
     }
 }
 
-#[cfg(not(target_os = "linux"))]
+#[cfg(all(not(target_os = "linux"), not(target_os = "windows")))]
 fn memory() -> Metric<MemoryMetrics> {
     Metric::unavailable("Memory collection is only implemented for Linux.")
 }
@@ -671,7 +671,7 @@ fn swap() -> Metric<SwapMetrics> {
     }
 }
 
-#[cfg(not(target_os = "linux"))]
+#[cfg(all(not(target_os = "linux"), not(target_os = "windows")))]
 fn swap() -> Metric<SwapMetrics> {
     Metric::unavailable("Swap collection is only implemented for Linux.")
 }
@@ -729,7 +729,7 @@ fn uptime() -> Metric<f64> {
     }
 }
 
-#[cfg(not(target_os = "linux"))]
+#[cfg(all(not(target_os = "linux"), not(target_os = "windows")))]
 fn uptime() -> Metric<f64> {
     Metric::unavailable("Uptime collection is only implemented for Linux.")
 }
@@ -867,7 +867,7 @@ fn inode_usage(total: u64, free: u64) -> Option<InodeMetrics> {
     })
 }
 
-#[cfg(not(target_os = "linux"))]
+#[cfg(all(not(target_os = "linux"), not(target_os = "windows")))]
 fn storage_volumes() -> Metric<Vec<StorageVolumeMetrics>> {
     Metric::unavailable("Mounted filesystem collection is only implemented for Linux.")
 }
@@ -967,7 +967,7 @@ fn is_virtual_filesystem(filesystem: &str) -> bool {
     )
 }
 
-#[cfg(not(target_os = "linux"))]
+#[cfg(all(not(target_os = "linux"), not(target_os = "windows")))]
 fn root_disk() -> Metric<DiskMetrics> {
     Metric::unavailable("Root filesystem collection is only implemented for Linux.")
 }
@@ -983,7 +983,7 @@ fn network_interfaces() -> Metric<Vec<NetworkInterfaceMetrics>> {
     }
 }
 
-#[cfg(not(target_os = "linux"))]
+#[cfg(all(not(target_os = "linux"), not(target_os = "windows")))]
 fn network_interfaces() -> Metric<Vec<NetworkInterfaceMetrics>> {
     Metric::unavailable("Network counters are only implemented for Linux.")
 }
@@ -1001,7 +1001,7 @@ fn disk_io() -> Metric<Vec<DiskIoMetrics>> {
     }
 }
 
-#[cfg(not(target_os = "linux"))]
+#[cfg(all(not(target_os = "linux"), not(target_os = "windows")))]
 fn disk_io() -> Metric<Vec<DiskIoMetrics>> {
     Metric::unavailable("Block-device I/O counters are only implemented for Linux.")
 }
@@ -1081,7 +1081,7 @@ async fn tailscale_status() -> Metric<TailscaleMetrics> {
     }
 }
 
-#[cfg(not(target_os = "linux"))]
+#[cfg(all(not(target_os = "linux"), not(target_os = "windows")))]
 async fn tailscale_status() -> Metric<TailscaleMetrics> {
     Metric::unavailable("Tailscale status collection is only implemented for Linux.")
 }
@@ -1105,7 +1105,7 @@ fn parse_tailscale_status(contents: &str) -> Option<TailscaleMetrics> {
     })
 }
 
-#[cfg(not(target_os = "linux"))]
+#[cfg(all(not(target_os = "linux"), not(target_os = "windows")))]
 async fn gpu_metrics() -> Metric<Vec<GpuMetrics>> {
     Metric::unavailable("GPU telemetry is only implemented for Linux NVIDIA drivers.")
 }
@@ -1203,7 +1203,7 @@ fn collect_amd_gpu_metrics() -> Option<Vec<GpuMetrics>> {
     }
 }
 
-#[cfg(not(target_os = "linux"))]
+#[cfg(all(not(target_os = "linux"), not(target_os = "windows")))]
 fn collect_amd_gpu_metrics() -> Option<Vec<GpuMetrics>> {
     None
 }
@@ -1291,6 +1291,204 @@ fn parse_disk_io(contents: &str) -> Option<Vec<DiskIoMetrics>> {
         });
     }
     Some(devices)
+}
+
+// Windows stubs for functions not yet implemented
+#[cfg(target_os = "windows")]
+fn cpu_cores() -> Metric<Vec<CpuCoreMetrics>> {
+    Metric::unavailable("Per-core CPU is not yet implemented for Windows.")
+}
+
+#[cfg(target_os = "windows")]
+fn system_pressure() -> Metric<SystemPressureMetrics> {
+    Metric::unavailable("System pressure is Linux-only.")
+}
+
+#[cfg(target_os = "windows")]
+fn load_average() -> Metric<LoadAverageMetrics> {
+    Metric::unavailable("Load average is Linux-only.")
+}
+
+#[cfg(target_os = "windows")]
+fn thermal_zones() -> Metric<Vec<ThermalZoneMetrics>> {
+    Metric::unavailable("Thermal zones are Linux-only.")
+}
+
+#[cfg(target_os = "windows")]
+fn swap() -> Metric<SwapMetrics> {
+    Metric::unavailable("Swap metrics are not yet implemented for Windows.")
+}
+
+#[cfg(target_os = "windows")]
+fn storage_volumes() -> Metric<Vec<StorageVolumeMetrics>> {
+    Metric::unavailable("Storage volumes are not yet implemented for Windows.")
+}
+
+#[cfg(target_os = "windows")]
+fn disk_io() -> Metric<Vec<DiskIoMetrics>> {
+    Metric::unavailable("Block-device I/O is Linux-only.")
+}
+
+#[cfg(target_os = "windows")]
+async fn tailscale_status() -> Metric<TailscaleMetrics> {
+    Metric::unavailable("Tailscale status is not yet implemented for Windows.")
+}
+
+#[cfg(target_os = "windows")]
+async fn gpu_metrics() -> Metric<Vec<GpuMetrics>> {
+    // Try NVIDIA via nvidia-smi
+    use std::process::Command;
+    let result = Command::new("nvidia-smi")
+        .args([
+            "--query-gpu=name,utilization.gpu,memory.total,memory.used,temperature.gpu",
+            "--format=csv,noheader,nounits",
+        ])
+        .output();
+
+    if let Ok(output) = result {
+        if output.status.success() {
+            if let Some(gpus) = String::from_utf8(output.stdout)
+                .ok()
+                .and_then(|contents| parse_nvidia_smi_output(&contents))
+            {
+                return Metric::available(gpus);
+            }
+        }
+    }
+
+    // Try AMD via PowerShell (WMI)
+    match run_powershell("(Get-CimInstance Win32_VideoController | Where-Object { $_.Name -like '*AMD*' -or $_.Name -like '*Radeon*' } | Select-Object -First 1).Name") {
+        Some(name) if !name.is_empty() => {
+            // AMD GPU detected but detailed metrics require vendor tools
+            Metric::available(vec![GpuMetrics {
+                name,
+                utilization_percent: None,
+                memory_total_bytes: 0,
+                memory_used_bytes: 0,
+                temperature_celsius: None,
+            }])
+        }
+        _ => Metric::unavailable("No supported GPU telemetry sources are available."),
+    }
+}
+
+// --- Windows telemetry (PowerShell-based) ---
+
+#[cfg(target_os = "windows")]
+fn hostname() -> Metric<String> {
+    run_powershell("hostname")
+        .filter(|s| !s.is_empty())
+        .map(Metric::available)
+        .unwrap_or_else(|| Metric::unavailable("Hostname could not be determined."))
+}
+
+#[cfg(target_os = "windows")]
+fn operating_system() -> Metric<String> {
+    run_powershell("(Get-CimInstance Win32_OperatingSystem).Caption")
+        .filter(|s| !s.is_empty())
+        .map(Metric::available)
+        .unwrap_or_else(|| Metric::unavailable("Operating system could not be determined."))
+}
+
+#[cfg(target_os = "windows")]
+async fn cpu_usage_percent() -> Metric<f64> {
+    match run_powershell("(Get-CimInstance Win32_Processor | Measure-Object -Property LoadPercentage -Average).Average") {
+        Some(val) => match val.parse::<f64>() {
+            Ok(v) if v.is_finite() => Metric::available((v * 10.0).round() / 10.0),
+            _ => Metric::unavailable("CPU utilization could not be parsed."),
+        },
+        None => Metric::unavailable("CPU utilization collection requires PowerShell."),
+    }
+}
+
+#[cfg(target_os = "windows")]
+fn memory() -> Metric<MemoryMetrics> {
+    let total = run_powershell(
+        "((Get-CimInstance Win32_OperatingSystem).TotalVisibleMemorySize * 1024) as [long]",
+    );
+    let free = run_powershell(
+        "((Get-CimInstance Win32_OperatingSystem).FreePhysicalMemory * 1024) as [long]",
+    );
+    match (total, free) {
+        (Some(t), Some(f)) => {
+            let total_bytes = t.parse::<u64>().unwrap_or(0);
+            let free_bytes = f.parse::<u64>().unwrap_or(0).min(total_bytes);
+            let used_bytes = total_bytes.saturating_sub(free_bytes);
+            if total_bytes > 0 {
+                Metric::available(MemoryMetrics {
+                    total_bytes,
+                    available_bytes: free_bytes,
+                    used_bytes,
+                    used_percent: used_bytes as f64 * 100.0 / total_bytes as f64,
+                })
+            } else {
+                Metric::unavailable("Memory data is unavailable.")
+            }
+        }
+        _ => Metric::unavailable("Memory collection requires PowerShell."),
+    }
+}
+
+#[cfg(target_os = "windows")]
+fn uptime() -> Metric<f64> {
+    match run_powershell(
+        "((Get-Date) - (Get-CimInstance Win32_OperatingSystem).LastBootUpTime).TotalSeconds",
+    ) {
+        Some(val) => match val.parse::<f64>() {
+            Ok(v) if v.is_finite() && v >= 0.0 => Metric::available(v),
+            _ => Metric::unavailable("Uptime could not be parsed."),
+        },
+        None => Metric::unavailable("Uptime collection requires PowerShell."),
+    }
+}
+
+#[cfg(target_os = "windows")]
+fn root_disk() -> Metric<DiskMetrics> {
+    match run_powershell("(Get-PSDrive -Name C).Used + (Get-PSDrive -Name C).Free") {
+        Some(total_str) => {
+            let total: u64 = total_str.parse().unwrap_or(0);
+            let used_str = run_powershell("(Get-PSDrive -Name C).Used").unwrap_or_default();
+            let used: u64 = used_str.parse().unwrap_or(0);
+            let available = total.saturating_sub(used);
+            if total > 0 {
+                Metric::available(DiskMetrics {
+                    total_bytes: total,
+                    available_bytes: available,
+                    used_bytes: used,
+                    used_percent: used as f64 * 100.0 / total as f64,
+                    mount_point: "C:\\".to_string(),
+                    inode_usage: None,
+                })
+            } else {
+                Metric::unavailable("Root disk capacity could not be read.")
+            }
+        }
+        None => Metric::unavailable("Root disk collection requires PowerShell."),
+    }
+}
+
+#[cfg(target_os = "windows")]
+fn network_interfaces() -> Metric<Vec<NetworkInterfaceMetrics>> {
+    Metric::unavailable("Network interface collection is not yet implemented for Windows.")
+}
+
+#[cfg(target_os = "windows")]
+fn run_powershell(command: &str) -> Option<String> {
+    use std::process::Command;
+    let output = Command::new("powershell")
+        .args(["-NoProfile", "-Command", command])
+        .output()
+        .ok()?;
+    if output.status.success() {
+        let result = String::from_utf8_lossy(&output.stdout).trim().to_string();
+        if result.is_empty() {
+            None
+        } else {
+            Some(result)
+        }
+    } else {
+        None
+    }
 }
 
 #[cfg(test)]
