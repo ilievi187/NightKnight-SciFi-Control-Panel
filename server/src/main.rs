@@ -11,6 +11,7 @@ use axum::{
     Json, Router,
 };
 use serde::Serialize;
+use tower_http::services::ServeDir;
 
 #[derive(Serialize)]
 struct HealthResponse {
@@ -45,8 +46,8 @@ async fn auth_middleware(
     req: Request<axum::body::Body>,
     next: Next,
 ) -> Result<Response, StatusCode> {
-    // Health endpoint is always accessible
-    if req.uri().path() == "/api/health" {
+    // Health endpoint and static files are always accessible
+    if req.uri().path() == "/api/health" || !req.uri().path().starts_with("/api/") {
         return Ok(next.run(req).await);
     }
 
@@ -84,6 +85,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .route("/api/metrics", get(host_metrics))
         .route("/api/hosts", get(hosts))
         .route("/api/agents", get(agents))
+        .fallback_service(ServeDir::new("dist"))
         .with_state(state.clone())
         .layer(middleware::from_fn_with_state(state, auth_middleware));
 
