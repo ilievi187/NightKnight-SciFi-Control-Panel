@@ -451,7 +451,7 @@ function formatDuration(seconds: number): string {
 
 function App() {
   const [metrics, setMetrics] = useState<HostMetrics | null>(null);
-  const [agents, setAgents] = useState<{ id: string; name: string; provider: string; status: string; model: string | null; current_task: string | null; last_heartbeat_unix: number | null; token_usage: number | null; context_usage: number | null; recent_errors: string[]; data_source: string }[]>([]);
+  const [agents, setAgents] = useState<{ id: string; name: string; provider: string; status: string; model: string | null; current_task: string | null; last_activity_unix: number | null; observed_at_unix: number; token_usage: number | null; context_usage: number | null; cost_usd: number | null; recent_errors: string[]; data_source: string }[]>([]);
   const [hosts, setHosts] = useState<HostEntry[]>([]);
   const [apiState, setApiState] = useState<"connecting" | "online" | "offline">(
     "connecting",
@@ -1276,7 +1276,7 @@ function App() {
   );
 }
 
-function AiAgentCard({ agent }: { agent: { id: string; name: string; provider: string; status: string; model: string | null; current_task: string | null; last_heartbeat_unix: number | null; token_usage: number | null; context_usage: number | null; recent_errors: string[]; data_source: string } }) {
+function AiAgentCard({ agent }: { agent: { id: string; name: string; provider: string; status: string; model: string | null; current_task: string | null; last_activity_unix: number | null; observed_at_unix: number; token_usage: number | null; context_usage: number | null; cost_usd: number | null; recent_errors: string[]; data_source: string } }) {
   return (
     <article className="ai-agent-card">
       <div className="ai-agent-heading">
@@ -1290,6 +1290,9 @@ function AiAgentCard({ agent }: { agent: { id: string; name: string; provider: s
         <span>MODEL: {agent.model || "N/A"}</span>
         <span>TASK: {agent.current_task || "N/A"}</span>
         <span>TOKENS: {agent.token_usage !== null ? agent.token_usage.toLocaleString() : "N/A"}</span>
+        <span>COST: {agent.cost_usd !== null ? `$${agent.cost_usd.toFixed(2)}` : "N/A"}</span>
+        <span>LAST ACTIVITY: {agent.last_activity_unix !== null ? new Date(agent.last_activity_unix * 1000).toLocaleTimeString() : "N/A"}</span>
+        <span>OBSERVED: {new Date(agent.observed_at_unix * 1000).toLocaleTimeString()}</span>
         <span>SOURCE: {agent.data_source}</span>
         {agent.recent_errors.length > 0 && (
           <span className="ai-agent-error">ERROR: {agent.recent_errors[0]}</span>
