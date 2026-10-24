@@ -1494,6 +1494,7 @@ fn run_powershell(command: &str) -> Option<String> {
 mod tests {
     use super::*;
 
+    #[cfg(target_os = "linux")]
     #[test]
     fn calculates_inode_usage_and_omits_unknown_capacity() {
         let usage = inode_usage(1_000, 250).unwrap();
@@ -1526,6 +1527,7 @@ mod tests {
         assert_eq!(parse_swap_kib("SwapTotal: 2 MB\nSwapFree: 1 MB\n"), None);
     }
 
+    #[cfg(target_os = "linux")]
     #[test]
     fn calculates_swap_usage_and_handles_disabled_or_inconsistent_counts() {
         let usage = build_swap_metrics(2_048, 512);
