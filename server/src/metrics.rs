@@ -1208,7 +1208,6 @@ fn collect_amd_gpu_metrics() -> Option<Vec<GpuMetrics>> {
     None
 }
 
-#[cfg(target_os = "linux")]
 fn parse_nvidia_smi_output(contents: &str) -> Option<Vec<GpuMetrics>> {
     let rows: Vec<&str> = contents
         .lines()
