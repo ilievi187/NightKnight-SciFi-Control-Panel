@@ -1006,7 +1006,10 @@ async fn gpu_metrics() -> Metric<Vec<GpuMetrics>> {
     use std::time::Duration;
     use tokio::process::Command;
 
-    let result = tokio::time::timeout(
+    let mut gpus = Vec::new();
+
+    // NVIDIA GPUs
+    let nvidia_result = tokio::time::timeout(
         Duration::from_secs(2),
         Command::new("nvidia-smi")
             .args([
@@ -1018,23 +1021,26 @@ async fn gpu_metrics() -> Metric<Vec<GpuMetrics>> {
     )
     .await;
 
-    match result {
-        Err(_) => Metric::unavailable("NVIDIA GPU telemetry did not respond within 2 seconds."),
-        Ok(Err(_)) => {
-            Metric::unavailable("The NVIDIA telemetry tool nvidia-smi is unavailable.")
+    if let Ok(Ok(output)) = nvidia_result {
+        if output.status.success() {
+            if let Some(nvidia_gpus) = String::from_utf8(output.stdout)
+                .ok()
+                .and_then(|contents| parse_nvidia_smi_output(&contents))
+            {
+                gpus.extend(nvidia_gpus);
+            }
         }
-        Ok(Ok(output)) if !output.status.success() => {
-            Metric::unavailable("nvidia-smi could not read GPU telemetry.")
-        }
-        Ok(Ok(output)) => match String::from_utf8(output.stdout)
-            .ok()
-            .and_then(|contents| parse_nvidia_smi_output(&contents))
-        {
-            Some(gpus) => Metric::available(gpus),
-            None => Metric::unavailable(
-                "nvidia-smi returned incomplete or invalid GPU telemetry.",
-            ),
-        },
+    }
+
+    // AMD GPUs (via sysfs)
+    if let Some(amd_gpus) = collect_amd_gpu_metrics() {
+        gpus.extend(amd_gpus);
+    }
+
+    if gpus.is_empty() {
+        Metric::unavailable("No supported GPU telemetry sources are available.")
+    } else {
+        Metric::available(gpus)
     }
 }
 
@@ -1097,6 +1103,99 @@ fn parse_tailscale_status(contents: &str) -> Option<TailscaleMetrics> {
 #[cfg(not(target_os = "linux"))]
 async fn gpu_metrics() -> Metric<Vec<GpuMetrics>> {
     Metric::unavailable("GPU telemetry is only implemented for Linux NVIDIA drivers.")
+}
+
+#[cfg(target_os = "linux")]
+fn collect_amd_gpu_metrics() -> Option<Vec<GpuMetrics>> {
+    let mut gpus = Vec::new();
+    let drm_path = std::path::Path::new("/sys/class/drm");
+
+    if let Ok(entries) = std::fs::read_dir(drm_path) {
+        for entry in entries.flatten() {
+            let name = entry.file_name().to_string_lossy().to_string();
+            // Only process cardN directories (not cardN-DP-1 etc.)
+            if !name.starts_with("card") || name.contains('-') {
+                continue;
+            }
+            let device_path = entry.path().join("device");
+            let driver_path = device_path.join("driver");
+
+            // Check if this is an AMD GPU
+            let driver = std::fs::read_link(&driver_path)
+                .ok()
+                .and_then(|p| p.file_name().map(|n| n.to_string_lossy().to_string()));
+            if driver.as_deref() != Some("amdgpu") {
+                continue;
+            }
+
+            // Read GPU utilization
+            let utilization = std::fs::read_to_string(device_path.join("gpu_busy_percent"))
+                .ok()
+                .and_then(|s| s.trim().parse::<f64>().ok())
+                .unwrap_or(0.0) as u8;
+
+            // Read VRAM
+            let vram_total = std::fs::read_to_string(device_path.join("mem_info_vram_total"))
+                .ok()
+                .and_then(|s| s.trim().parse::<u64>().ok())
+                .unwrap_or(0);
+            let vram_used = std::fs::read_to_string(device_path.join("mem_info_vram_used"))
+                .ok()
+                .and_then(|s| s.trim().parse::<u64>().ok())
+                .unwrap_or(0);
+
+            // Read temperature from hwmon
+            let mut temperature = 0u16;
+            if let Ok(hwmon_entries) = std::fs::read_dir(device_path.join("hwmon")) {
+                for hwmon in hwmon_entries.flatten() {
+                    let temp_path = hwmon.path().join("temp1_input");
+                    if let Ok(temp_str) = std::fs::read_to_string(&temp_path) {
+                        if let Ok(temp_millidegrees) = temp_str.trim().parse::<i64>() {
+                            temperature = (temp_millidegrees / 1000) as u16;
+                            break;
+                        }
+                    }
+                }
+            }
+
+            // Get GPU name
+            let name = std::fs::read_to_string(device_path.join("product_name"))
+                .map(|s| s.trim().to_string())
+                .unwrap_or_else(|_| {
+                    std::fs::read_to_string(device_path.join("uevent"))
+                        .ok()
+                        .and_then(|s| {
+                            s.lines()
+                                .find(|l| l.starts_with("PCI_ID="))
+                                .map(|l| format!("AMD GPU ({})", l.trim_start_matches("PCI_ID=")))
+                        })
+                        .unwrap_or_else(|| "AMD GPU".to_string())
+                });
+
+            gpus.push(GpuMetrics {
+                name: if name.is_empty() {
+                    format!("AMD GPU ({})", name)
+                } else {
+                    name
+                },
+                utilization_percent: utilization,
+                memory_total_bytes: vram_total,
+                memory_used_bytes: vram_used,
+                temperature_celsius: temperature,
+            });
+        }
+    }
+
+    if gpus.is_empty() {
+        None
+    } else {
+        Some(gpus)
+    }
+}
+
+#[cfg(not(target_os = "linux"))]
+fn collect_amd_gpu_metrics() -> Option<Vec<GpuMetrics>> {
+    None
 }
 
 #[cfg(target_os = "linux")]
