@@ -45,7 +45,7 @@ https://github.com/ilievi187/NightKnight-SciFi-Control-Panel
 6. Multi-host live verification (no second host)
 
 ## Next Agent Instructions
-- Start OpenCode: `opencode serve --port 4098` (password in /tmp/oc.log)
+- OpenCode: reuse the running authenticated service on loopback where available. If it must be started, load credentials only from the approved per-user, permission-restricted local configuration; never retrieve a password from `/tmp/oc.log` or other process logs, place it on command lines, or copy it into GitHub. Verify the port is free before starting another instance.
 - Start Hermes: already running on 8642
 - Start Paperclip: `LD_LIBRARY_PATH=... paperclipai run --instance default`
 - Set env vars from .env.example
